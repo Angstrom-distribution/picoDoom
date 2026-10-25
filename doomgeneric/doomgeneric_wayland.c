@@ -31,6 +31,7 @@
 
 #include <wayland-client.h>
 
+#include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 #include "doomdef.h"
@@ -75,6 +76,7 @@ static struct wl_registry *s_Registry;
 static struct wl_compositor *s_Compositor;
 static struct wl_shm *s_Shm;
 static struct xdg_wm_base *s_WmBase;
+static struct zwp_idle_inhibit_manager_v1 *s_IdleInhibitManager;
 static struct wl_seat *s_Seat;
 static struct wl_keyboard *s_Keyboard;
 static struct wl_surface *s_Surface;
@@ -525,6 +527,12 @@ static void registryGlobal(void *data, struct wl_registry *registry,
 		                            &xdg_wm_base_interface,
 		                            version < 4 ? version : 4);
 		xdg_wm_base_add_listener(s_WmBase, &s_WmBaseListener, NULL);
+	}
+	else if (strcmp(interface, zwp_idle_inhibit_manager_v1_interface.name) == 0)
+	{
+		s_IdleInhibitManager = wl_registry_bind(registry, name,
+		                                        &zwp_idle_inhibit_manager_v1_interface,
+		                                        1);
 	}
 	else if (strcmp(interface, wl_seat_interface.name) == 0 && !s_Seat)
 	{
@@ -1007,6 +1015,11 @@ void DG_Init()
 	}
 
 	s_Surface = wl_compositor_create_surface(s_Compositor);
+	if (s_IdleInhibitManager)
+	{
+		zwp_idle_inhibit_manager_v1_create_inhibitor(s_IdleInhibitManager,
+		                                             s_Surface);
+	}
 	s_XdgSurface = xdg_wm_base_get_xdg_surface(s_WmBase, s_Surface);
 	xdg_surface_add_listener(s_XdgSurface, &s_XdgSurfaceListener, NULL);
 	s_Toplevel = xdg_surface_get_toplevel(s_XdgSurface);
