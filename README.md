@@ -62,6 +62,8 @@ make -f Makefile.wayland
 ./doomgeneric -iwad doom1.wad
 ```
 
+The window follows the size the compositor gives it. The 320x200 picture is fitted into it with a 4:3 shape; `-aspect W:H` changes the shape and `-stretch` fills the whole window.
+
 ## Windows
 ![Windows](screenshots/windows.png)
 

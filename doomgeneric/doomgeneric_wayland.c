@@ -21,6 +21,8 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -35,6 +37,7 @@
 #include "doomkeys.h"
 #include "i_system.h"
 #include "i_video.h"
+#include "m_argv.h"
 #include "m_controls.h"
 
 #if !defined(CMAP256) || DOOMGENERIC_RESX != SCREENWIDTH || DOOMGENERIC_RESY != SCREENHEIGHT
@@ -44,6 +47,10 @@
 #define KEYQUEUE_SIZE 64
 #define NUM_EVDEV_KEYS 768
 #define NUM_BUFFERS 2
+#define DEFAULT_WIDTH 640
+#define DEFAULT_HEIGHT 480
+#define MAX_ASPECT 4096
+#define MAX_SURFACE_SIZE 16384
 
 struct buffer
 {
@@ -51,6 +58,8 @@ struct buffer
 	void *data;
 	size_t size;
 	int busy;
+	int stale;
+	int drawnFull;
 };
 
 struct keybind
@@ -77,8 +86,21 @@ static int s_HasRgb565;
 static int s_Bpp = 4;
 
 static struct buffer s_Buffers[NUM_BUFFERS];
-static int s_Width = SCREENWIDTH;
-static int s_Height = SCREENHEIGHT;
+
+// The size of the buffers, and of the picture inside them.
+static int s_Width;
+static int s_Height;
+static int s_PicX, s_PicY, s_PicWidth, s_PicHeight;
+static int *s_XMap;
+static int *s_YMap;
+
+static int s_NewWidth, s_NewHeight;
+static int s_BoundsWidth, s_BoundsHeight;
+static int s_Resize;
+
+static int s_AspectWidth = 4;
+static int s_AspectHeight = 3;
+static int s_Stretch;
 
 static uint16_t s_Pal565[256];
 static uint32_t s_Pal8888[256];
@@ -343,8 +365,51 @@ static const struct xdg_wm_base_listener s_WmBaseListener =
 static void xdgSurfaceConfigure(void *data, struct xdg_surface *surface,
                                 uint32_t serial)
 {
+	int width = s_NewWidth;
+	int height = s_NewHeight;
+
 	(void)data;
 	xdg_surface_ack_configure(surface, serial);
+
+	// A buffer must stay below the 2 GiB the shm pool size can express.
+	if (width > MAX_SURFACE_SIZE)
+	{
+		width = MAX_SURFACE_SIZE;
+	}
+	if (height > MAX_SURFACE_SIZE)
+	{
+		height = MAX_SURFACE_SIZE;
+	}
+
+	// A size of zero leaves the choice to the client.
+	if (width <= 0)
+	{
+		width = s_Width ? s_Width : DEFAULT_WIDTH;
+		if (!s_Width && s_BoundsWidth > 0 && width > s_BoundsWidth)
+		{
+			width = s_BoundsWidth;
+		}
+	}
+	if (height <= 0)
+	{
+		height = s_Height ? s_Height : DEFAULT_HEIGHT;
+		if (!s_Height && s_BoundsHeight > 0 && height > s_BoundsHeight)
+		{
+			height = s_BoundsHeight;
+		}
+	}
+
+	if (width != s_Width || height != s_Height)
+	{
+		s_NewWidth = width;
+		s_NewHeight = height;
+		s_Resize = 1;
+	}
+	else
+	{
+		s_Resize = 0;
+	}
+
 	s_Configured = 1;
 	s_NeedRedraw = 1;
 }
@@ -358,7 +423,9 @@ static void toplevelConfigure(void *data, struct xdg_toplevel *toplevel,
                               int32_t width, int32_t height,
                               struct wl_array *states)
 {
-	(void)data; (void)toplevel; (void)width; (void)height; (void)states;
+	(void)data; (void)toplevel; (void)states;
+	s_NewWidth = width;
+	s_NewHeight = height;
 }
 
 static void toplevelClose(void *data, struct xdg_toplevel *toplevel)
@@ -370,7 +437,9 @@ static void toplevelClose(void *data, struct xdg_toplevel *toplevel)
 static void toplevelConfigureBounds(void *data, struct xdg_toplevel *toplevel,
                                     int32_t width, int32_t height)
 {
-	(void)data; (void)toplevel; (void)width; (void)height;
+	(void)data; (void)toplevel;
+	s_BoundsWidth = width;
+	s_BoundsHeight = height;
 }
 
 static const struct xdg_toplevel_listener s_ToplevelListener =
@@ -437,12 +506,27 @@ static const struct wl_callback_listener s_FrameListener =
 	.done = frameDone,
 };
 
+static void destroyBuffer(struct buffer *buffer)
+{
+	if (buffer->wl_buffer)
+	{
+		wl_buffer_destroy(buffer->wl_buffer);
+		munmap(buffer->data, buffer->size);
+		buffer->wl_buffer = NULL;
+	}
+	buffer->stale = 0;
+}
+
 static void bufferRelease(void *data, struct wl_buffer *wlBuffer)
 {
 	struct buffer *buffer = data;
 
 	(void)wlBuffer;
 	buffer->busy = 0;
+	if (buffer->stale)
+	{
+		destroyBuffer(buffer);
+	}
 }
 
 static const struct wl_buffer_listener s_BufferListener =
@@ -545,6 +629,8 @@ static void createBuffer(struct buffer *buffer)
 	close(fd);
 
 	buffer->busy = 0;
+	buffer->stale = 0;
+	buffer->drawnFull = 0;
 	wl_buffer_add_listener(buffer->wl_buffer, &s_BufferListener, buffer);
 }
 
@@ -564,29 +650,145 @@ static void updatePalette(void)
 	palette_changed = false;
 }
 
-static void convertFrame(struct buffer *buffer)
+static void parseOptions(void)
 {
-	const pixel_t *src = DG_ScreenBuffer;
-	int count = s_Width * s_Height;
+	int p = M_CheckParmWithArgs("-aspect", 1);
+
+	if (p)
+	{
+		char *end;
+		long w = strtol(myargv[p + 1], &end, 10);
+		long h = 0;
+
+		if (*end == ':')
+		{
+			h = strtol(end + 1, &end, 10);
+		}
+
+		if (*end != '\0' || w < 1 || w > MAX_ASPECT || h < 1 || h > MAX_ASPECT)
+		{
+			I_Error("-aspect needs a ratio such as 4:3, got '%s'",
+			        myargv[p + 1]);
+		}
+
+		s_AspectWidth = w;
+		s_AspectHeight = h;
+	}
+
+	s_Stretch = M_ParmExists("-stretch");
+}
+
+static void applyResize(void)
+{
 	int i;
 
-	if (s_Format == WL_SHM_FORMAT_RGB565)
-	{
-		uint16_t *dst = buffer->data;
+	s_Width = s_NewWidth;
+	s_Height = s_NewHeight;
+	s_Resize = 0;
 
-		for (i = 0; i < count; i++)
-		{
-			dst[i] = s_Pal565[src[i]];
-		}
+	if (s_Stretch)
+	{
+		s_PicWidth = s_Width;
+		s_PicHeight = s_Height;
 	}
 	else
 	{
-		uint32_t *dst = buffer->data;
-
-		for (i = 0; i < count; i++)
+		s_PicWidth = s_Width;
+		s_PicHeight = (s_Width * s_AspectHeight + s_AspectWidth / 2) / s_AspectWidth;
+		if (s_PicHeight > s_Height)
 		{
-			dst[i] = s_Pal8888[src[i]];
+			s_PicHeight = s_Height;
+			s_PicWidth = (s_Height * s_AspectWidth + s_AspectHeight / 2) / s_AspectHeight;
 		}
+	}
+	if (s_PicWidth < 1)
+	{
+		s_PicWidth = 1;
+	}
+	if (s_PicHeight < 1)
+	{
+		s_PicHeight = 1;
+	}
+
+	s_PicX = (s_Width - s_PicWidth) / 2;
+	s_PicY = (s_Height - s_PicHeight) / 2;
+
+	s_XMap = realloc(s_XMap, s_PicWidth * sizeof(*s_XMap));
+	s_YMap = realloc(s_YMap, s_PicHeight * sizeof(*s_YMap));
+	if (!s_XMap || !s_YMap)
+	{
+		I_Error("Out of memory for the scaling tables");
+	}
+
+	// Sample the source at the centre of each output pixel.
+	for (i = 0; i < s_PicWidth; i++)
+	{
+		s_XMap[i] = ((2 * i + 1) * SCREENWIDTH) / (2 * s_PicWidth);
+	}
+	for (i = 0; i < s_PicHeight; i++)
+	{
+		s_YMap[i] = ((2 * i + 1) * SCREENHEIGHT) / (2 * s_PicHeight) * SCREENWIDTH;
+	}
+
+	for (i = 0; i < NUM_BUFFERS; i++)
+	{
+		if (s_Buffers[i].wl_buffer && !s_Buffers[i].busy)
+		{
+			destroyBuffer(&s_Buffers[i]);
+		}
+		else
+		{
+			s_Buffers[i].stale = 1;
+		}
+	}
+}
+
+static void convertFrame(struct buffer *buffer)
+{
+	const pixel_t *src = DG_ScreenBuffer;
+	int stride = s_Width * s_Bpp;
+	int x, y;
+
+	for (y = 0; y < s_PicHeight; y++)
+	{
+		char *row = (char *)buffer->data + (size_t)(s_PicY + y) * stride
+		            + s_PicX * s_Bpp;
+		const pixel_t *line = src + s_YMap[y];
+
+		if (y > 0 && s_YMap[y] == s_YMap[y - 1])
+		{
+			memcpy(row, row - stride, s_PicWidth * s_Bpp);
+		}
+		else if (s_Format == WL_SHM_FORMAT_RGB565)
+		{
+			uint16_t *dst = (uint16_t *)row;
+
+			for (x = 0; x < s_PicWidth; x++)
+			{
+				dst[x] = s_Pal565[line[s_XMap[x]]];
+			}
+		}
+		else
+		{
+			uint32_t *dst = (uint32_t *)row;
+
+			for (x = 0; x < s_PicWidth; x++)
+			{
+				dst[x] = s_Pal8888[line[s_XMap[x]]];
+			}
+		}
+	}
+}
+
+static void damage(int x, int y, int width, int height)
+{
+	if (s_DamageBuffer)
+	{
+		wl_surface_damage_buffer(s_Surface, x, y, width, height);
+	}
+	else
+	{
+		wl_surface_damage(s_Surface, x, y, width, height);
 	}
 }
 
@@ -599,6 +801,8 @@ void DG_Init()
 	sa.sa_handler = handleSignal;
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
+
+	parseOptions();
 
 	for (i = 0; i < sizeof(s_DefaultKeyMap) / sizeof(s_DefaultKeyMap[0]); i++)
 	{
@@ -660,6 +864,11 @@ void DG_DrawFrame()
 
 	pump(0);
 
+	if (s_Resize)
+	{
+		applyResize();
+	}
+
 	if (s_FrameCallback && !s_NeedRedraw)
 	{
 		return;
@@ -692,13 +901,14 @@ void DG_DrawFrame()
 	convertFrame(buffer);
 
 	wl_surface_attach(s_Surface, buffer->wl_buffer, 0, 0);
-	if (s_DamageBuffer)
+	if (buffer->drawnFull)
 	{
-		wl_surface_damage_buffer(s_Surface, 0, 0, s_Width, s_Height);
+		damage(s_PicX, s_PicY, s_PicWidth, s_PicHeight);
 	}
 	else
 	{
-		wl_surface_damage(s_Surface, 0, 0, s_Width, s_Height);
+		damage(0, 0, s_Width, s_Height);
+		buffer->drawnFull = 1;
 	}
 
 	if (!s_FrameCallback)
