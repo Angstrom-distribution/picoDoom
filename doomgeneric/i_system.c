@@ -259,9 +259,9 @@ void I_Quit (void)
 
 #if ORIGCODE
     SDL_Quit();
+#endif
 
     exit(0);
-#endif
 }
 
 #if !defined(_WIN32) && !defined(__MACOSX__) && !defined(__DJGPP__)
