@@ -1164,7 +1164,7 @@ void D_DoomMain (void)
 {
     int p;
     char file[256];
-    char demolumpname[9];
+    static char demolumpname[9];
 #if ORIGCODE
     int numiwadlumps;
 #endif
