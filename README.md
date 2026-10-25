@@ -64,6 +64,8 @@ make -f Makefile.wayland
 
 The window follows the size the compositor gives it. The 320x200 picture is fitted into it with a 4:3 shape; `-aspect W:H` changes the shape and `-stretch` fills the whole window.
 
+`-keymap CODE=NAME[,CODE=NAME...]` binds Linux evdev codes. NAME is `none`, a key such as `escape`, `enter`, `f5` or `x`, or an action (`up`, `down`, `left`, `right`, `strafeleft`, `straferight`, `fire`, `use`, `strafe`, `speed`, `prevweapon`, `nextweapon`, `weapon1` to `weapon8`, `map`, `menu`, `pause`) that follows the engine's binding. For example `-keymap 28=fire,172=menu`.
+
 ## Windows
 ![Windows](screenshots/windows.png)
 
