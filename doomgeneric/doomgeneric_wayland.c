@@ -17,6 +17,7 @@
 
 #define _GNU_SOURCE
 
+#include <ctype.h>
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -159,6 +160,54 @@ static const struct keybind s_DefaultKeyMap[] =
 	LIT(108, KEY_DOWNARROW), LIT(109, KEY_PGDN),
 	LIT(110, KEY_INS), LIT(111, KEY_DEL),
 	VAR(119, key_pause),
+};
+
+struct keyname
+{
+	const char *name;
+	int key;
+};
+
+struct actionname
+{
+	const char *name;
+	int *var;
+};
+
+static const struct keyname s_KeyNames[] =
+{
+	{ "escape", KEY_ESCAPE }, { "enter", KEY_ENTER }, { "tab", KEY_TAB },
+	{ "backspace", KEY_BACKSPACE }, { "space", ' ' },
+	{ "comma", ',' }, { "period", '.' },
+	{ "minus", KEY_MINUS }, { "equals", KEY_EQUALS },
+	{ "uparrow", KEY_UPARROW }, { "downarrow", KEY_DOWNARROW },
+	{ "leftarrow", KEY_LEFTARROW }, { "rightarrow", KEY_RIGHTARROW },
+	{ "home", KEY_HOME }, { "end", KEY_END },
+	{ "pgup", KEY_PGUP }, { "pgdn", KEY_PGDN },
+	{ "ins", KEY_INS }, { "del", KEY_DEL },
+	{ "rshift", KEY_RSHIFT }, { "rctrl", KEY_RCTRL }, { "ralt", KEY_RALT },
+	{ "capslock", KEY_CAPSLOCK },
+	{ "f1", KEY_F1 }, { "f2", KEY_F2 }, { "f3", KEY_F3 }, { "f4", KEY_F4 },
+	{ "f5", KEY_F5 }, { "f6", KEY_F6 }, { "f7", KEY_F7 }, { "f8", KEY_F8 },
+	{ "f9", KEY_F9 }, { "f10", KEY_F10 }, { "f11", KEY_F11 },
+	{ "f12", KEY_F12 },
+};
+
+// These follow the engine's bindings when the key is pressed.
+static const struct actionname s_ActionNames[] =
+{
+	{ "up", &key_up }, { "down", &key_down },
+	{ "left", &key_left }, { "right", &key_right },
+	{ "strafeleft", &key_strafeleft }, { "straferight", &key_straferight },
+	{ "fire", &key_fire }, { "use", &key_use },
+	{ "strafe", &key_strafe }, { "speed", &key_speed },
+	{ "prevweapon", &key_prevweapon }, { "nextweapon", &key_nextweapon },
+	{ "weapon1", &key_weapon1 }, { "weapon2", &key_weapon2 },
+	{ "weapon3", &key_weapon3 }, { "weapon4", &key_weapon4 },
+	{ "weapon5", &key_weapon5 }, { "weapon6", &key_weapon6 },
+	{ "weapon7", &key_weapon7 }, { "weapon8", &key_weapon8 },
+	{ "map", &key_map_toggle }, { "menu", &key_menu_activate },
+	{ "pause", &key_pause },
 };
 
 static void connectionLost(void)
@@ -650,6 +699,91 @@ static void updatePalette(void)
 	palette_changed = false;
 }
 
+static int parseKeyName(const char *name, struct keybind *bind)
+{
+	unsigned int i;
+
+	bind->key = 0;
+	bind->var = NULL;
+
+	if (strcmp(name, "none") == 0)
+	{
+		return 0;
+	}
+
+	for (i = 0; i < sizeof(s_ActionNames) / sizeof(s_ActionNames[0]); i++)
+	{
+		if (strcmp(name, s_ActionNames[i].name) == 0)
+		{
+			bind->var = s_ActionNames[i].var;
+			return 0;
+		}
+	}
+
+	for (i = 0; i < sizeof(s_KeyNames) / sizeof(s_KeyNames[0]); i++)
+	{
+		if (strcmp(name, s_KeyNames[i].name) == 0)
+		{
+			bind->key = s_KeyNames[i].key;
+			return 0;
+		}
+	}
+
+	if (name[0] >= ' ' && name[0] <= '~' && name[1] == '\0')
+	{
+		bind->key = tolower((unsigned char)name[0]);
+		return 0;
+	}
+
+	return -1;
+}
+
+static void parseKeyMap(const char *arg)
+{
+	char *copy = strdup(arg);
+	char *save = NULL;
+	char *entry;
+
+	if (!copy)
+	{
+		I_Error("Out of memory");
+	}
+
+	for (entry = strtok_r(copy, ",", &save); entry;
+	     entry = strtok_r(NULL, ",", &save))
+	{
+		struct keybind bind;
+		char *end;
+		char *name = strchr(entry, '=');
+		long code;
+
+		if (!name)
+		{
+			I_Error("-keymap entry '%s' is not CODE=NAME", entry);
+		}
+		*name++ = '\0';
+
+		code = strtol(entry, &end, 10);
+		if (*entry == '\0' || *end != '\0' || code < 1
+		 || code >= NUM_EVDEV_KEYS)
+		{
+			I_Error("-keymap entry '%s=%s' has no valid key code",
+			        entry, name);
+		}
+
+		if (parseKeyName(name, &bind) < 0)
+		{
+			I_Error("-keymap entry '%s=%s' has an unknown key name",
+			        entry, name);
+		}
+
+		bind.code = code;
+		s_KeyMap[code] = bind;
+	}
+
+	free(copy);
+}
+
 static void parseOptions(void)
 {
 	int p = M_CheckParmWithArgs("-aspect", 1);
@@ -676,6 +810,12 @@ static void parseOptions(void)
 	}
 
 	s_Stretch = M_ParmExists("-stretch");
+
+	p = M_CheckParmWithArgs("-keymap", 1);
+	if (p)
+	{
+		parseKeyMap(myargv[p + 1]);
+	}
 }
 
 static void applyResize(void)
@@ -802,12 +942,22 @@ void DG_Init()
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
 
-	parseOptions();
+	// The engine's defaults leave weapon cycling unbound.
+	if (key_prevweapon == 0)
+	{
+		key_prevweapon = '[';
+	}
+	if (key_nextweapon == 0)
+	{
+		key_nextweapon = ']';
+	}
 
 	for (i = 0; i < sizeof(s_DefaultKeyMap) / sizeof(s_DefaultKeyMap[0]); i++)
 	{
 		s_KeyMap[s_DefaultKeyMap[i].code] = s_DefaultKeyMap[i];
 	}
+
+	parseOptions();
 
 	s_Display = wl_display_connect(NULL);
 	if (!s_Display)
