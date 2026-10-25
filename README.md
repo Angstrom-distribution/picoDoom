@@ -66,6 +66,8 @@ The window follows the size the compositor gives it. The 320x200 picture is fitt
 
 `-keymap CODE=NAME[,CODE=NAME...]` binds Linux evdev codes. NAME is `none`, a key such as `escape`, `enter`, `f5` or `x`, or an action (`up`, `down`, `left`, `right`, `strafeleft`, `straferight`, `fire`, `use`, `strafe`, `speed`, `prevweapon`, `nextweapon`, `weapon1` to `weapon8`, `map`, `menu`, `pause`) that follows the engine's binding. For example `-keymap 28=fire,172=menu`.
 
+`-fullscreen` asks for a fullscreen window, `-appid ID` sets the application id (default `doomgeneric`) and `-title TEXT` sets a fixed window title.
+
 ## Windows
 ![Windows](screenshots/windows.png)
 

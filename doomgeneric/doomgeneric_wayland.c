@@ -102,6 +102,9 @@ static int s_Resize;
 static int s_AspectWidth = 4;
 static int s_AspectHeight = 3;
 static int s_Stretch;
+static int s_Fullscreen;
+static const char *s_AppId = "doomgeneric";
+static const char *s_Title;
 
 static uint16_t s_Pal565[256];
 static uint32_t s_Pal8888[256];
@@ -810,6 +813,19 @@ static void parseOptions(void)
 	}
 
 	s_Stretch = M_ParmExists("-stretch");
+	s_Fullscreen = M_ParmExists("-fullscreen");
+
+	p = M_CheckParmWithArgs("-appid", 1);
+	if (p)
+	{
+		s_AppId = myargv[p + 1];
+	}
+
+	p = M_CheckParmWithArgs("-title", 1);
+	if (p)
+	{
+		s_Title = myargv[p + 1];
+	}
 
 	p = M_CheckParmWithArgs("-keymap", 1);
 	if (p)
@@ -995,8 +1011,12 @@ void DG_Init()
 	xdg_surface_add_listener(s_XdgSurface, &s_XdgSurfaceListener, NULL);
 	s_Toplevel = xdg_surface_get_toplevel(s_XdgSurface);
 	xdg_toplevel_add_listener(s_Toplevel, &s_ToplevelListener, NULL);
-	xdg_toplevel_set_app_id(s_Toplevel, "doomgeneric");
-	xdg_toplevel_set_title(s_Toplevel, "Doom");
+	xdg_toplevel_set_app_id(s_Toplevel, s_AppId);
+	xdg_toplevel_set_title(s_Toplevel, s_Title ? s_Title : "Doom");
+	if (s_Fullscreen)
+	{
+		xdg_toplevel_set_fullscreen(s_Toplevel, NULL);
+	}
 	wl_surface_commit(s_Surface);
 
 	while (!s_Configured)
@@ -1112,7 +1132,7 @@ int DG_GetKey(int* pressed, unsigned char* key)
 
 void DG_SetWindowTitle(const char * title)
 {
-	if (s_Toplevel)
+	if (s_Toplevel && !s_Title)
 	{
 		xdg_toplevel_set_title(s_Toplevel, title);
 	}
