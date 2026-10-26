@@ -24,6 +24,8 @@
 
 #define SNDMIX_FRAC_BITS 16
 #define SNDMIX_SHIFT     1      // accumulator >> 1 before the clamp
+#define SNDMIX_MUSIC_SHIFT 6    // (m * gain) >> 6 into acc; after SNDMIX_SHIFT
+                                // the net gain is gain / 128 (Q7)
 
 typedef struct
 {
@@ -46,5 +48,12 @@ void SNDMIX_SetGains(sndvoice_t *voice, int vol, int sep);
 
 void SNDMIX_Mix(sndvoice_t *voices, int num_voices, int32_t *acc, int frames);
 void SNDMIX_Output(int32_t *acc, int16_t *out, int frames);
+
+// Add a mono signed 16-bit source to both channels of acc. gain is 0..127
+// (Q7). One multiply and one shift per frame, no call. May be called before
+// or after SNDMIX_Mix: the adds commute, so the output is bit-identical
+// either way.
+
+void SNDMIX_MixMono(const int16_t *src, int gain, int32_t *acc, int frames);
 
 #endif
