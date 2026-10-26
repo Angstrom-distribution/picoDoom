@@ -105,6 +105,8 @@ void R_DrawColumn (void)
     byte*		dest; 
     fixed_t		frac;
     fixed_t		fracstep;	 
+    byte*		source;		// locals, so the byte store
+    lighttable_t*	colormap;	//  cannot force a reload per pixel
  
     count = dc_yh - dc_yl; 
 
@@ -128,6 +130,8 @@ void R_DrawColumn (void)
     //  which is the only mapping to be done.
     fracstep = dc_iscale; 
     frac = dc_texturemid + (dc_yl-centery)*fracstep; 
+    source = dc_source;
+    colormap = dc_colormap;
 
     // Inner loop that does the actual texture mapping,
     //  e.g. a DDA-lile scaling.
@@ -136,7 +140,7 @@ void R_DrawColumn (void)
     {
 	// Re-map color indices from wall texture column
 	//  using a lighting/special effects LUT.
-	*dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
+	*dest = colormap[source[(frac>>FRACBITS)&127]];
 	
 	dest += SCREENWIDTH; 
 	frac += fracstep;
@@ -286,6 +290,8 @@ void R_DrawFuzzColumn (void)
     byte*		dest; 
     fixed_t		frac;
     fixed_t		fracstep;	 
+    lighttable_t*	fuzzmap;	// locals, written back
+    int			pos;		//  after the loop
 
     // Adjust borders. Low... 
     if (!dc_yl) 
@@ -319,22 +325,25 @@ void R_DrawFuzzColumn (void)
     // Looks like an attempt at dithering,
     //  using the colormap #6 (of 0-31, a bit
     //  brighter than average).
+    fuzzmap = colormaps + 6*256;
+    pos = fuzzpos;
     do 
     {
 	// Lookup framebuffer, and retrieve
 	//  a pixel that is either one column
 	//  left or right of the current one.
 	// Add index from colormap to index.
-	*dest = colormaps[6*256+dest[fuzzoffset[fuzzpos]]]; 
+	*dest = fuzzmap[dest[fuzzoffset[pos]]]; 
 
 	// Clamp table lookup index.
-	if (++fuzzpos == FUZZTABLE) 
-	    fuzzpos = 0;
+	if (++pos == FUZZTABLE) 
+	    pos = 0;
 	
 	dest += SCREENWIDTH;
 
 	frac += fracstep; 
     } while (count--); 
+    fuzzpos = pos;
 } 
 
 // low detail mode version
@@ -594,6 +603,8 @@ void R_DrawSpan (void)
     int count;
     int spot;
     unsigned int xtemp, ytemp;
+    byte *source;			// locals, so the byte store
+    lighttable_t *colormap;		//  cannot force a reload per pixel
 
 #ifdef RANGECHECK
     if (ds_x2 < ds_x1
@@ -621,6 +632,8 @@ void R_DrawSpan (void)
 
     // We do not check for zero spans here?
     count = ds_x2 - ds_x1;
+    source = ds_source;
+    colormap = ds_colormap;
 
     do
     {
@@ -631,7 +644,7 @@ void R_DrawSpan (void)
 
 	// Lookup pixel from flat texture tile,
 	//  re-index using light/colormap.
-	*dest++ = ds_colormap[ds_source[spot]];
+	*dest++ = colormap[source[spot]];
 
         position += step;
 
