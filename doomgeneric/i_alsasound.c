@@ -15,7 +15,8 @@
 //
 // DESCRIPTION:
 //	Sound effects through ALSA without libasound: sixteen voices mixed
-//	by an integer mixer in one audio thread. Music is a null module.
+//	by an integer mixer in one audio thread. The thread also mixes in the
+//	music that i_alsamusic.c decodes (a hook, silent when absent).
 //
 
 #include <errno.h>
@@ -26,6 +27,7 @@
 #include <string.h>
 
 #include "deh_str.h"
+#include "i_alsamusic.h"
 #include "i_alsapcm.h"
 #include "i_sndmix.h"
 #include "i_sound.h"
@@ -72,12 +74,24 @@ static int mix_error;                   // set by the thread before it exits
 static pcm_t pcm;
 static int32_t *mix_acc;                // 2 * period frames
 static int16_t *mix_out;                // 2 * period frames
-static int music_volume;
+static int16_t *music_out;              // period frames, mono
 
 // Not used: there is no resampling library, and no float math.
 
 int use_libsamplerate = 0;
 float libsamplerate_scale = 0.65f;
+
+// Without i_alsamusic.o there is no music: the hook gives silence.
+
+__attribute__((weak)) int I_ALSA_MusicRender(int16_t *out, int frames)
+{
+    return 0;
+}
+
+int I_ALSA_SoundRate(void)
+{
+    return sound_initialized ? (int) pcm.rate : 0;
+}
 
 // Get the lump name of a sound effect, following links.
 
@@ -323,10 +337,15 @@ static void I_ALSA_PrecacheSounds(sfxinfo_t *sounds, int num_sounds)
 
 static void *MixThread(void *arg)
 {
-    int err;
+    int err, gain;
 
     for (;;)
     {
+        // Decode and fetch the music first: it takes its own lock, which is
+        // never held together with voice_lock.
+
+        gain = I_ALSA_MusicRender(music_out, pcm.period_frames);
+
         pthread_mutex_lock(&voice_lock);
 
         if (mix_quit)
@@ -337,6 +356,11 @@ static void *MixThread(void *arg)
 
         SNDMIX_Mix(voices, NUM_VOICES, mix_acc, pcm.period_frames);
         pthread_mutex_unlock(&voice_lock);
+
+        if (gain > 0)
+        {
+            SNDMIX_MixMono(music_out, gain, mix_acc, pcm.period_frames);
+        }
 
         SNDMIX_Output(mix_acc, mix_out, pcm.period_frames);
 
@@ -443,8 +467,9 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
 
     mix_acc = calloc(2 * pcm.period_frames, sizeof(int32_t));
     mix_out = malloc(2 * pcm.period_frames * sizeof(int16_t));
+    music_out = calloc(pcm.period_frames, sizeof(int16_t));
 
-    if (mix_acc == NULL || mix_out == NULL)
+    if (mix_acc == NULL || mix_out == NULL || music_out == NULL)
     {
         printf("I_ALSA_InitSound: out of memory\n");
         goto fail;
@@ -486,8 +511,10 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
 fail:
     free(mix_acc);
     free(mix_out);
+    free(music_out);
     mix_acc = NULL;
     mix_out = NULL;
+    music_out = NULL;
     PCM_Close(&pcm);
     return false;
 }
@@ -545,67 +572,4 @@ sound_module_t DG_sound_module =
     I_ALSA_StopSound,
     I_ALSA_SoundIsPlaying,
     I_ALSA_PrecacheSounds,
-};
-
-// Null music module. Every slot except Poll must be set.
-
-static boolean I_ALSA_InitMusic(void)
-{
-    return true;
-}
-
-static void I_ALSA_ShutdownMusic(void)
-{
-}
-
-static void I_ALSA_SetMusicVolume(int volume)
-{
-    music_volume = volume;
-}
-
-static void I_ALSA_PauseMusic(void)
-{
-}
-
-static void I_ALSA_ResumeMusic(void)
-{
-}
-
-static void *I_ALSA_RegisterSong(void *data, int len)
-{
-    return NULL;
-}
-
-static void I_ALSA_UnRegisterSong(void *handle)
-{
-}
-
-static void I_ALSA_PlaySong(void *handle, boolean looping)
-{
-}
-
-static void I_ALSA_StopSong(void)
-{
-}
-
-static boolean I_ALSA_MusicIsPlaying(void)
-{
-    return false;
-}
-
-music_module_t DG_music_module =
-{
-    sound_alsa_devices,
-    arrlen(sound_alsa_devices),
-    I_ALSA_InitMusic,
-    I_ALSA_ShutdownMusic,
-    I_ALSA_SetMusicVolume,
-    I_ALSA_PauseMusic,
-    I_ALSA_ResumeMusic,
-    I_ALSA_RegisterSong,
-    I_ALSA_UnRegisterSong,
-    I_ALSA_PlaySong,
-    I_ALSA_StopSong,
-    I_ALSA_MusicIsPlaying,
-    NULL,
 };
