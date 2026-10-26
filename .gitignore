@@ -12,3 +12,7 @@ Build/
 doomgeneric.map
 build-wayland/
 doomgeneric/doomgeneric
+doomgeneric/test/work/
+doomgeneric/test/render*.wav
+doomgeneric/test/*_test
+doomgeneric/test/*_test_armel
