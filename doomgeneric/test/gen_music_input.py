@@ -23,3 +23,17 @@ w.setsampwidth(2)
 w.setframerate(22050)
 w.writeframes(struct.pack("<%dh" % N, *frames))
 w.close()
+
+# Optional second argument: a directory for modtest. It gets a fake music
+# lump (lump.bin, pseudo-random bytes), and mod/index.txt that maps the FNV-1a
+# of that lump to d_e1m1.flac. The caller copies the FLAC next to the index.
+if len(sys.argv) > 2:
+    import os
+    d = sys.argv[2]
+    os.makedirs(os.path.join(d, "mod"), exist_ok=True)
+    lump = bytes(random.randrange(256) for _ in range(150000))
+    open(os.path.join(d, "lump.bin"), "wb").write(lump)
+    h = 0x811c9dc5
+    for b in lump:
+        h = ((h ^ b) * 0x01000193) & 0xffffffff
+    open(os.path.join(d, "mod", "index.txt"), "w").write("# test\n%08x d_e1m1.flac\n" % h)
