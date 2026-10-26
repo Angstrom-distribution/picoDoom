@@ -566,6 +566,162 @@ static void test_render(const char *path)
     report("render.wav (bit-exact vs reference)", ok && peak(res.out, 0, frames) > 0, "");
 }
 
+// ---------------------------------------------------------------------
+// Mono music source (SNDMIX_MixMono). The reference adds in 64 bit with an
+// explicit floor division, so it shares no code with the mixer.
+
+static long long floordiv(long long a, long long b)
+{
+    long long q = a / b;
+
+    if ((a % b != 0) && ((a < 0) != (b < 0)))
+    {
+        q--;
+    }
+    return q;
+}
+
+static int16_t clamp16(long long x)
+{
+    return (int16_t) (x > 32767 ? 32767 : x < -32768 ? -32768 : x);
+}
+
+static void test_mono_vectors(void)
+{
+    static const struct { int m, g, acc, out; } t[] = {
+        { 32767, 127, 65022, 32511 },
+        { -32768, 127, -65024, -32512 },
+        { 12345, 0, 0, 0 },
+        { -1, 1, -1, -1 },
+        { 1, 1, 0, 0 },
+        { 32767, 64, 32767, 16383 },
+        { -32768, 64, -32768, -16384 },
+    };
+    int i, ok = 1;
+
+    for (i = 0; i < 7; ++i)
+    {
+        int16_t src[1] = { (int16_t) t[i].m }, out[2];
+        int32_t acc[2] = { 0, 0 }, a0, a1;
+
+        SNDMIX_MixMono(src, t[i].g, acc, 1);
+        a0 = acc[0];
+        a1 = acc[1];
+        ok &= a0 == t[i].acc && a1 == t[i].acc;
+        SNDMIX_Output(acc, out, 1);
+        ok &= out[0] == t[i].out && out[1] == t[i].out;
+        printf("  m %6d gain %3d: acc %6d/%6d (expect %6d) out %6d/%6d (expect %6d)\n",
+               t[i].m, t[i].g, a0, a1, t[i].acc, out[0], out[1], t[i].out);
+        ok &= acc[0] == 0 && acc[1] == 0;       // Output cleared them
+    }
+    report("MixMono fixed vectors", ok, "");
+}
+
+static unsigned int rng = 12345;
+
+static unsigned int rnd(void)
+{
+    rng = rng * 1664525u + 1013904223u;
+    return rng >> 8;
+}
+
+// Sfx voices plus a music source with a random gain every period. The mixer
+// is called twice per run: music after the sfx, and music before the sfx.
+
+static void test_mono_random(void)
+{
+    enum { NP = 400 };
+    sfx_t *s[4];
+    int16_t *music = malloc(sizeof(int16_t) * PERIOD * NP);
+    int gains[NP];
+    long long total = (long long) PERIOD * NP;
+    long long i;
+    unsigned int h_after = 2166136261u, h_before = 2166136261u;
+    int mism = 0, order_mism = 0, p, sat = 0;
+
+    s[0] = synth("a", 22050, 60000, 2);
+    s[1] = synth("b", 11025, 40000, 2);
+    s[2] = synth("c", 22050, 50000, 0);
+    s[3] = synth("d", 8000, 30000, 2);
+    for (i = 0; i < total; ++i)
+    {
+        switch ((i / 4096) & 3)
+        {
+        case 0: music[i] = (int16_t) rnd(); break;              // full-range noise
+        case 1: music[i] = (int16_t) (i & 1 ? 32767 : -32768); break;
+        case 2: music[i] = (int16_t) ((rnd() & 0x3ff) - 512); break;
+        default: music[i] = (int16_t) (i & 0x7fff); break;
+        }
+    }
+    for (p = 0; p < NP; ++p)
+    {
+        gains[p] = (p % 50 == 0) ? 127 : (p % 50 == 1) ? 0 : (int) (rnd() % 128);
+    }
+
+    {
+        int32_t acc_a[2 * PERIOD] = { 0 }, acc_b[2 * PERIOD] = { 0 };
+        sndvoice_t va[MAXV], vb[MAXV];
+        long long f;
+        int k;
+
+        memset(va, 0, sizeof(va));
+        memset(vb, 0, sizeof(vb));
+        for (k = 0; k < 4; ++k)
+        {
+            va[k].pos = vb[k].pos = s[k]->pcm;
+            va[k].end = vb[k].end = s[k]->pcm + s[k]->len;
+            va[k].step = vb[k].step = SNDMIX_Step(s[k]->rate, OUT_RATE);
+            SNDMIX_SetGains(&va[k], 100 + 5 * k, 20 + 70 * k);
+            vb[k].left = va[k].left;
+            vb[k].right = va[k].right;
+        }
+        for (p = 0; p < NP; ++p)
+        {
+            int16_t oa[2 * PERIOD], ob[2 * PERIOD];
+
+            SNDMIX_Mix(va, MAXV, acc_a, PERIOD);
+            SNDMIX_MixMono(music + p * PERIOD, gains[p], acc_a, PERIOD);
+            SNDMIX_Output(acc_a, oa, PERIOD);
+
+            SNDMIX_MixMono(music + p * PERIOD, gains[p], acc_b, PERIOD);
+            SNDMIX_Mix(vb, MAXV, acc_b, PERIOD);
+            SNDMIX_Output(acc_b, ob, PERIOD);
+
+            for (f = 0; f < PERIOD; ++f)
+            {
+                long long fr = (long long) p * PERIOD + f, al = 0, ar = 0, m;
+                int l, r;
+
+                for (k = 0; k < 4; ++k)
+                {
+                    long long idx = (fr * (((long long) s[k]->rate << 16) / OUT_RATE)) >> 16;
+                    int gl = ((254 - (20 + 70 * k)) * (100 + 5 * k)) / 127;
+                    int gr = ((20 + 70 * k) * (100 + 5 * k)) / 127;
+
+                    if (idx < s[k]->len)
+                    {
+                        al += (s[k]->pcm[idx] - 128) * (long long) gl;
+                        ar += (s[k]->pcm[idx] - 128) * (long long) gr;
+                    }
+                }
+                m = floordiv((long long) music[fr] * gains[p], 64);
+                l = clamp16(floordiv(al + m, 2));
+                r = clamp16(floordiv(ar + m, 2));
+                sat += l == 32767 || l == -32768;
+                mism += oa[2 * f] != l || oa[2 * f + 1] != r;
+                order_mism += oa[2 * f] != ob[2 * f] || oa[2 * f + 1] != ob[2 * f + 1];
+            }
+            h_after = fnv(h_after, oa, sizeof(oa));
+            h_before = fnv(h_before, ob, sizeof(ob));
+        }
+    }
+    printf("  %d periods, random gain per period (0 and 127 included), saturated frames %d\n", NP, sat);
+    printf("  mismatches vs 64-bit reference: %d; music-before-sfx differs from music-after-sfx: %d\n", mism, order_mism);
+    printf("  output FNV-1a (music after) %08x, (music before) %08x\n", h_after, h_before);
+    report("MixMono + sfx vs 64-bit reference", mism == 0 && order_mism == 0 && sat > 0 && h_after == h_before, "");
+    free(music);
+}
+
 int main(int argc, char **argv)
 {
     const char *wav = argc > 1 ? argv[1] : "render.wav";
@@ -584,6 +740,8 @@ int main(int argc, char **argv)
     test_end_mid_period();
     test_start_stop();
     test_steps();
+    test_mono_vectors();
+    test_mono_random();
     test_render(wav);
     printf("%s\n", nfail ? "SOME TESTS FAILED" : "ALL PASSED");
     return nfail != 0;
