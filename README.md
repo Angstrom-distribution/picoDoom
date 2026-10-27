@@ -6,7 +6,7 @@ The game itself is the doomgeneric port of the Chocolate Doom code base. A WAD i
 
 ## Features
 
-- Wayland: a window in `wl_shm` buffers that follows the size the compositor configures, fullscreen, application id and title, key map from the command line, the screen kept on while the window is shown. The converter from the 320x200 indexed frame to RGB565 is unrolled for the window widths that occur and can damage only the rows that changed.
+- Wayland: a window in `wl_shm` buffers that follows the size the compositor configures, fullscreen, application id and title, key map from the command line, the screen kept on while the window is shown. The converter from the 320x200 indexed frame to RGB565 is unrolled for the picture widths that occur and can damage only the rows that changed.
 - Sound effects: an integer mixer for 16 voices and a minimal ALSA layer that talks to the kernel with ioctls, so it links statically on ARMv5 without libasound. One audio thread mixes with blocking writes, or the game thread fills the device queue itself with `-audio-mode tick` and there is no audio thread at all.
 - Music: pre-rendered tracks, one FLAC file per song, mono at 22050 Hz, decoded into a ring that the audio thread, or the game thread in tick mode, mixes. A song is found by a hash of its music lump in the `index.txt` of the music directory; a song without a file is silent. A pack is rendered from a WAD on another machine; the tool for it is a plan and not in this repository ([docs/audio.md](docs/audio.md)).
 - Speed: a cache of the result of `R_GetColumn` per texture column, which cuts data TLB walks by 47 %, and the draw loops keep their sources in locals. On an h2200 both raise the headless timedemo from 56.4 to 67.8 frames per second.
