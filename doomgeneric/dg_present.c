@@ -84,6 +84,11 @@ static void findPattern(dgp_geom_t *g)
 	}
 }
 
+int DGP_Stride(int width, int bpp)
+{
+	return (width * bpp + 3) & ~3;
+}
+
 int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
                 int picw, int pich, int bpp)
 {
@@ -98,6 +103,7 @@ int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
 	g->picw = picw;
 	g->pich = pich;
 	g->bpp = bpp;
+	g->stride = DGP_Stride(width, bpp);
 
 	xmap = realloc(g->xmap, picw * sizeof(*xmap));
 	if (xmap)
@@ -160,7 +166,7 @@ void DGP_ConvertOld(void *data, const dgp_geom_t *g, const uint8_t *src,
                     const uint16_t *pal565, const uint32_t *pal8888,
                     const uint8_t *convert_rows)
 {
-	int stride = g->width * g->bpp;
+	int stride = g->stride;
 	int x, y;
 
 	for (y = 0; y < g->pich; y++)
@@ -586,7 +592,7 @@ void DGP_Plan(dgp_t *c, const uint8_t *src, uint32_t bufgen, int drawn,
 		p->whole_buffer = 1;
 		p->nrects = 0;
 		st->full++;
-		st->bytes_dmg += (uint64_t)c->g.width * c->g.height * c->g.bpp;
+		st->bytes_dmg += (uint64_t)c->g.stride * c->g.height;
 	}
 	else
 	{
@@ -611,8 +617,8 @@ void DGP_Convert(dgp_t *c, void *data, const uint8_t *src,
 {
 	if (c->mode == DGP_MODE_NEW && c->g.bpp == 2)
 	{
-		DGP_Convert565((uint16_t *)data + (size_t)c->g.picy * c->g.width
-		               + c->g.picx, c->g.width, src, pal565, &c->g,
+		DGP_Convert565((uint16_t *)data + (size_t)c->g.picy * (c->g.stride / 2)
+		               + c->g.picx, c->g.stride / 2, src, pal565, &c->g,
 		               p->convert);
 	}
 	else
