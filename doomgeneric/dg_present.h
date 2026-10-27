@@ -51,6 +51,7 @@ typedef struct
 	int picx, picy;			// the picture inside it
 	int picw, pich;
 	int bpp;			// bytes per buffer pixel: 2 (RGB565) or 4
+	int stride;			// bytes from one buffer row to the next, DGP_Stride()
 	int *xmap;			// source column for each output column
 	int *ymap;			// source row * DGP_SRC_W for each output row
 	uint16_t *yrow;			// source row for each output row
@@ -71,6 +72,11 @@ enum
 
 // Sets the geometry and builds the scaling tables: each output pixel
 // samples the source at its centre.  Returns -1 when out of memory.
+// The row length in bytes of a wl_shm buffer: width * bpp rounded up to a
+// multiple of four, because pixman and wlroots refuse any other stride.  The
+// bytes after the last pixel of a row are padding that is never written or
+// read as picture.
+int DGP_Stride(int width, int bpp);
 int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
                 int picw, int pich, int bpp);
 void DGP_GeomFree(dgp_geom_t *g);
@@ -131,7 +137,8 @@ typedef struct
 } dgp_t;
 
 // The RGB565 converter.  pic is the first pixel of the picture inside the
-// buffer, stride_px the buffer row length in pixels.  It gives the same
+// buffer, stride_px the buffer row length in pixels (stride / 2, so the
+// padded row length for an odd width).  It gives the same
 // pixels as DGP_ConvertOld.
 void DGP_Convert565(uint16_t *pic, int stride_px, const uint8_t *src,
                     const uint16_t *pal, const dgp_geom_t *g,
