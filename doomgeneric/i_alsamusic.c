@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 #include "i_alsamusic.h"
+#include "i_alsatick.h"
 #include "i_musdec.h"
 #include "i_musindex.h"
 #include "i_musplay.h"
@@ -291,6 +292,14 @@ static void *I_ALSA_RegisterSong(void *data, int len)
     if (song == NULL)
     {
         return NULL;
+    }
+
+    // Reading the file stalls the game thread for a while, which in the tick
+    // sound mode is also the audio thread: fill the device queue first.
+
+    if (I_ALSA_Service != NULL)
+    {
+        I_ALSA_Service(1);
     }
 
     snprintf(path, sizeof(path), "%s/%s", music_dir, name);
