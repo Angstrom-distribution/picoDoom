@@ -26,6 +26,10 @@ typedef uint32_t pixel_t;
 
 extern pixel_t* DG_ScreenBuffer;
 
+// Non-zero when the back end reads I_VideoBuffer itself: I_FinishUpdate then
+// leaves DG_ScreenBuffer alone and only calls DG_DrawFrame.  Set it in DG_Init.
+extern int DG_DirectVideoBuffer;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

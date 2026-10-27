@@ -116,6 +116,7 @@ static int s_Configured;
 static int s_NeedRedraw;
 static volatile sig_atomic_t s_Quit;
 static int s_DamageBuffer;
+static int s_Direct;
 
 static struct timespec s_StartTime;
 
@@ -820,6 +821,9 @@ static void parseOptions(void)
 		s_AspectHeight = h;
 	}
 
+	s_Direct = M_ParmExists("-present-direct");
+	DG_DirectVideoBuffer = s_Direct;
+
 	s_Stretch = M_ParmExists("-stretch");
 	s_Fullscreen = M_ParmExists("-fullscreen");
 
@@ -990,6 +994,8 @@ void DG_Init()
 	}
 
 	clock_gettime(CLOCK_MONOTONIC, &s_StartTime);
+
+	printf("DG_Init: present direct=%d\n", s_Direct);
 }
 
 void DG_DrawFrame()
@@ -1033,8 +1039,9 @@ void DG_DrawFrame()
 		updatePalette();
 	}
 
-	DGP_ConvertOld(buffer->data, &s_Geom, DG_ScreenBuffer, s_Pal565, s_Pal8888,
-	               NULL);
+	DGP_ConvertOld(buffer->data, &s_Geom,
+	               s_Direct ? I_VideoBuffer : DG_ScreenBuffer, s_Pal565,
+	               s_Pal8888, NULL);
 
 	wl_surface_attach(s_Surface, buffer->wl_buffer, 0, 0);
 	if (buffer->drawnFull)
