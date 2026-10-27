@@ -211,6 +211,55 @@ static void test_decode_loop(void)
     free(want);
 }
 
+// Slices of every size the audio paths use: the periods up to 4096 of
+// -audio-period, the 1024 frame slices of the tick mode, the odd amounts a
+// fill produces, and a single frame. A fixed size each, then all of them
+// mixed in a repeating order. The output must equal the looped reference.
+
+static void test_slices(void)
+{
+    static const int sizes[] = { 1024, 2048, 4096, 740, 1, 1023 };
+    long long total = 3LL * nref + 1000;
+    int16_t *out = malloc(total * sizeof(int16_t)), *want = malloc(total * sizeof(int16_t));
+    long long i, done, d;
+    int p, k = 0, ok = 1, n;
+    void *s = open_song(flac_data, flac_len);
+
+    ok &= s != NULL;
+    for (i = 0; i < total; ++i)
+    {
+        want[i] = refpcm[i % nref];
+    }
+    for (p = 0; p < 6; ++p)
+    {
+        ok &= MUSPLAY_Start(mp, musdecoders[0], s, true);
+        render(out, total, sizes[p]);
+        d = first_diff(out, want, total);
+        printf("  loop, slices of %4d: first difference %lld, errors %d\n", sizes[p], d, mp->errors);
+        ok &= d < 0 && mp->errors == 0;
+    }
+    ok &= MUSPLAY_Start(mp, musdecoders[0], s, true);
+    for (done = 0; done < total; ++k)
+    {
+        n = sizes[k % 6];
+        if (total - done < n)
+        {
+            n = (int) (total - done);
+        }
+        MUSPLAY_Render(mp, out + done, n);
+        done += n;
+    }
+    d = first_diff(out, want, total);
+    printf("  loop, mixed slices (1024 2048 4096 740 1 1023): %d calls, first difference %lld, errors %d\n",
+           k, d, mp->errors);
+    ok &= d < 0 && mp->errors == 0 && MUSPLAY_IsPlaying(mp);
+    report("slices from 1 to 4096 frames equal the reference", ok);
+    MUSPLAY_Stop(mp);
+    musdecoders[0]->Close(s);
+    free(out);
+    free(want);
+}
+
 static void test_decode_once(void)
 {
     static const int periods[] = { 256, 512, 1000 };
@@ -505,6 +554,7 @@ int main(int argc, char **argv)
     test_hash_index(argc > 3 ? argv[3] : NULL);
     test_decode_loop();
     test_decode_once();
+    test_slices();
     test_pause_stop();
     test_truncated();
     test_mix(512, 1000, true);
