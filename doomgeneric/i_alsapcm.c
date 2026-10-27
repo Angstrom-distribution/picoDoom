@@ -13,7 +13,7 @@
 //
 // DESCRIPTION:
 //	Minimal ALSA PCM playback layer on the kernel ioctl interface.
-//	Only <sound/asound.h> and six ioctls are used; none of them carries
+//	Only <sound/asound.h> and a few ioctls are used; none of them carries
 //	a timespec, so the 64 bit time_t ABI does not matter.
 //
 
@@ -154,8 +154,9 @@ static int TryHwParams(pcm_t *pcm, unsigned int rate,
     return 0;
 }
 
-int PCM_SetParams(pcm_t *pcm, unsigned int rate, unsigned int period_frames,
-                  unsigned int periods)
+static int SetParams(pcm_t *pcm, unsigned int rate,
+                     unsigned int period_frames, unsigned int periods,
+                     int tick, unsigned int start_frames)
 {
     struct snd_pcm_sw_params sw;
     unsigned long buffer, boundary;
@@ -193,10 +194,131 @@ int PCM_SetParams(pcm_t *pcm, unsigned int rate, unsigned int period_frames,
     sw.silence_size = 0;
     sw.boundary = boundary;
 
+    if (tick)
+    {
+        sw.start_threshold = start_frames;
+        sw.stop_threshold = boundary;
+        sw.silence_size = boundary;
+    }
+
+    pcm->boundary = boundary;
+
     if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_SW_PARAMS, &sw) < 0)
     {
         return -errno;
     }
+
+    if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_PREPARE) < 0)
+    {
+        return -errno;
+    }
+
+    return 0;
+}
+
+int PCM_SetParams(pcm_t *pcm, unsigned int rate, unsigned int period_frames,
+                  unsigned int periods)
+{
+    return SetParams(pcm, rate, period_frames, periods, 0, 0);
+}
+
+int PCM_SetParamsTick(pcm_t *pcm, unsigned int rate,
+                      unsigned int period_frames, unsigned int periods,
+                      unsigned int start_frames)
+{
+    return SetParams(pcm, rate, period_frames, periods, 1, start_frames);
+}
+
+int PCM_SetNonblock(pcm_t *pcm, int on)
+{
+    int flags = fcntl(pcm->fd, F_GETFL);
+
+    if (flags < 0)
+    {
+        return -errno;
+    }
+
+    flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+
+    if (fcntl(pcm->fd, F_SETFL, flags) < 0)
+    {
+        return -errno;
+    }
+
+    return 0;
+}
+
+int PCM_Delay(pcm_t *pcm, long *frames)
+{
+    snd_pcm_sframes_t d = 0;
+    long buffer = (long) pcm->period_frames * pcm->periods;
+
+    if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_DELAY, &d) < 0)
+    {
+        return -errno;
+    }
+
+    // The kernel wraps a negative hw_avail by the boundary, so a queue
+    // that ran dry shows up as a huge positive number. More than a whole
+    // buffer cannot be queued.
+
+    if (d > buffer)
+    {
+        d -= (long) pcm->boundary;
+    }
+
+    *frames = d;
+    return 0;
+}
+
+int PCM_Forward(pcm_t *pcm, unsigned long frames)
+{
+    snd_pcm_uframes_t f = frames;
+
+    if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_FORWARD, &f) < 0)
+    {
+        return -errno;
+    }
+
+    return 0;
+}
+
+int PCM_WriteSome(pcm_t *pcm, const int16_t *frames, unsigned int count)
+{
+    struct snd_xferi x;
+
+    for (;;)
+    {
+        x.result = 0;
+        x.buf = (void *) frames;
+        x.frames = count;
+
+        if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x) >= 0)
+        {
+            return x.result > 0 ? (int) x.result : 0;
+        }
+
+        switch (errno)
+        {
+            case EINTR:
+                continue;
+
+            case EAGAIN:
+                return 0;
+
+            case EPIPE:
+            case ESTRPIPE:
+                return PCM_Recover(pcm);
+
+            default:
+                return -errno;
+        }
+    }
+}
+
+int PCM_Recover(pcm_t *pcm)
+{
+    ++pcm->xruns;
 
     if (ioctl(pcm->fd, SNDRV_PCM_IOCTL_PREPARE) < 0)
     {
