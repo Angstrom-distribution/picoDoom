@@ -34,6 +34,7 @@
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
+#include "dg_present.h"
 #include "doomdef.h"
 #include "doomgeneric.h"
 #include "doomkeys.h"
@@ -62,6 +63,7 @@ struct buffer
 	int busy;
 	int stale;
 	int drawnFull;
+	uint32_t gen;		// the tracker frame this buffer last showed
 };
 
 struct keybind
@@ -94,8 +96,7 @@ static struct buffer s_Buffers[NUM_BUFFERS];
 static int s_Width;
 static int s_Height;
 static int s_PicX, s_PicY, s_PicWidth, s_PicHeight;
-static int *s_XMap;
-static int *s_YMap;
+static dgp_t s_Present;
 
 static int s_NewWidth, s_NewHeight;
 static int s_BoundsWidth, s_BoundsHeight;
@@ -116,6 +117,11 @@ static int s_Configured;
 static int s_NeedRedraw;
 static volatile sig_atomic_t s_Quit;
 static int s_DamageBuffer;
+static int s_Direct;
+static int s_PresentMode = DGP_MODE_OLD;
+static int s_DamageMode = DGP_DAMAGE_FULL;
+static int s_DamageRects = 4;
+static int s_DamageNoSkip;
 
 static struct timespec s_StartTime;
 
@@ -691,21 +697,34 @@ static void createBuffer(struct buffer *buffer)
 	buffer->busy = 0;
 	buffer->stale = 0;
 	buffer->drawnFull = 0;
+	buffer->gen = 0;
 	wl_buffer_add_listener(buffer->wl_buffer, &s_BufferListener, buffer);
 }
 
 static void updatePalette(void)
 {
+	uint16_t pal565[256];
+	uint32_t pal8888[256];
 	int i;
 
 	for (i = 0; i < 256; i++)
 	{
 		const struct color *c = &colors[i];
 
-		s_Pal565[i] = ((c->r >> 3) << 11) | ((c->g >> 2) << 5) | (c->b >> 3);
-		s_Pal8888[i] = (c->r << 16) | (c->g << 8) | c->b;
+		pal565[i] = ((c->r >> 3) << 11) | ((c->g >> 2) << 5) | (c->b >> 3);
+		pal8888[i] = (c->r << 16) | (c->g << 8) | c->b;
 	}
 
+	// The engine sets the palette often with the same colours; only a real
+	// change makes every row differ.
+	if (s_PaletteValid && (memcmp(pal565, s_Pal565, sizeof(pal565)) != 0
+	 || memcmp(pal8888, s_Pal8888, sizeof(pal8888)) != 0))
+	{
+		DGP_PaletteChanged(&s_Present);
+	}
+
+	memcpy(s_Pal565, pal565, sizeof(pal565));
+	memcpy(s_Pal8888, pal8888, sizeof(pal8888));
 	s_PaletteValid = 1;
 	palette_changed = false;
 }
@@ -820,6 +839,64 @@ static void parseOptions(void)
 		s_AspectHeight = h;
 	}
 
+	s_Direct = M_ParmExists("-present-direct");
+	DG_DirectVideoBuffer = s_Direct;
+
+	p = M_CheckParmWithArgs("-presentmode", 1);
+	if (p)
+	{
+		if (strcmp(myargv[p + 1], "old") == 0)
+		{
+			s_PresentMode = DGP_MODE_OLD;
+		}
+		else if (strcmp(myargv[p + 1], "new") == 0)
+		{
+			s_PresentMode = DGP_MODE_NEW;
+		}
+		else
+		{
+			I_Error("-presentmode needs old or new, got '%s'", myargv[p + 1]);
+		}
+	}
+
+	p = M_CheckParmWithArgs("-damage", 1);
+	if (p)
+	{
+		if (strcmp(myargv[p + 1], "full") == 0)
+		{
+			s_DamageMode = DGP_DAMAGE_FULL;
+		}
+		else if (strcmp(myargv[p + 1], "sbar") == 0)
+		{
+			s_DamageMode = DGP_DAMAGE_SBAR;
+		}
+		else if (strcmp(myargv[p + 1], "rows") == 0)
+		{
+			s_DamageMode = DGP_DAMAGE_ROWS;
+		}
+		else
+		{
+			I_Error("-damage needs full, sbar or rows, got '%s'",
+			        myargv[p + 1]);
+		}
+	}
+
+	p = M_CheckParmWithArgs("-damage-rects", 1);
+	if (p)
+	{
+		char *end;
+		long n = strtol(myargv[p + 1], &end, 10);
+
+		if (*end != '\0' || n < 1 || n > DGP_MAX_RECTS)
+		{
+			I_Error("-damage-rects needs a number from 1 to %d, got '%s'",
+			        DGP_MAX_RECTS, myargv[p + 1]);
+		}
+		s_DamageRects = n;
+	}
+
+	s_DamageNoSkip = M_ParmExists("-damage-noskip");
+
 	s_Stretch = M_ParmExists("-stretch");
 	s_Fullscreen = M_ParmExists("-fullscreen");
 
@@ -840,6 +917,11 @@ static void parseOptions(void)
 	{
 		parseKeyMap(myargv[p + 1]);
 	}
+}
+
+static const uint8_t *presentSource(void)
+{
+	return s_Direct ? I_VideoBuffer : DG_ScreenBuffer;
 }
 
 static void applyResize(void)
@@ -877,21 +959,10 @@ static void applyResize(void)
 	s_PicX = (s_Width - s_PicWidth) / 2;
 	s_PicY = (s_Height - s_PicHeight) / 2;
 
-	s_XMap = realloc(s_XMap, s_PicWidth * sizeof(*s_XMap));
-	s_YMap = realloc(s_YMap, s_PicHeight * sizeof(*s_YMap));
-	if (!s_XMap || !s_YMap)
+	if (DGP_Resize(&s_Present, s_Width, s_Height, s_PicX, s_PicY, s_PicWidth,
+	               s_PicHeight, s_Bpp, presentSource()) < 0)
 	{
 		I_Error("Out of memory for the scaling tables");
-	}
-
-	// Sample the source at the centre of each output pixel.
-	for (i = 0; i < s_PicWidth; i++)
-	{
-		s_XMap[i] = ((2 * i + 1) * SCREENWIDTH) / (2 * s_PicWidth);
-	}
-	for (i = 0; i < s_PicHeight; i++)
-	{
-		s_YMap[i] = ((2 * i + 1) * SCREENHEIGHT) / (2 * s_PicHeight) * SCREENWIDTH;
 	}
 
 	for (i = 0; i < NUM_BUFFERS; i++)
@@ -907,43 +978,6 @@ static void applyResize(void)
 	}
 }
 
-static void convertFrame(struct buffer *buffer)
-{
-	const pixel_t *src = DG_ScreenBuffer;
-	int stride = s_Width * s_Bpp;
-	int x, y;
-
-	for (y = 0; y < s_PicHeight; y++)
-	{
-		char *row = (char *)buffer->data + (size_t)(s_PicY + y) * stride
-		            + s_PicX * s_Bpp;
-		const pixel_t *line = src + s_YMap[y];
-
-		if (y > 0 && s_YMap[y] == s_YMap[y - 1])
-		{
-			memcpy(row, row - stride, s_PicWidth * s_Bpp);
-		}
-		else if (s_Format == WL_SHM_FORMAT_RGB565)
-		{
-			uint16_t *dst = (uint16_t *)row;
-
-			for (x = 0; x < s_PicWidth; x++)
-			{
-				dst[x] = s_Pal565[line[s_XMap[x]]];
-			}
-		}
-		else
-		{
-			uint32_t *dst = (uint32_t *)row;
-
-			for (x = 0; x < s_PicWidth; x++)
-			{
-				dst[x] = s_Pal8888[line[s_XMap[x]]];
-			}
-		}
-	}
-}
-
 static void damage(int x, int y, int width, int height)
 {
 	if (s_DamageBuffer)
@@ -954,6 +988,14 @@ static void damage(int x, int y, int width, int height)
 	{
 		wl_surface_damage(s_Surface, x, y, width, height);
 	}
+}
+
+static void printPresentStats(void)
+{
+	char line[512];
+
+	DGP_StatsString(&s_Present, line, sizeof(line));
+	puts(line);
 }
 
 void DG_Init()
@@ -1038,11 +1080,27 @@ void DG_Init()
 	}
 
 	clock_gettime(CLOCK_MONOTONIC, &s_StartTime);
+
+	if (DGP_Init(&s_Present, s_PresentMode, s_DamageMode, s_DamageRects,
+	             s_DamageNoSkip) < 0)
+	{
+		I_Error("Out of memory for the present state");
+	}
+	// Not I_AtExit: D_Endoom calls exit(0) before the functions registered
+	// earlier, so a normal quit would never reach this one.
+	atexit(printPresentStats);
+
+	printf("DG_Init: present direct=%d mode=%s damage=%s rects=%d skip=%d\n",
+	       s_Direct, s_PresentMode == DGP_MODE_NEW ? "new" : "old",
+	       s_DamageMode == DGP_DAMAGE_ROWS ? "rows" :
+	       s_DamageMode == DGP_DAMAGE_SBAR ? "sbar" : "full",
+	       s_DamageRects, !s_DamageNoSkip);
 }
 
 void DG_DrawFrame()
 {
 	struct buffer *buffer = NULL;
+	dgp_plan_t plan;
 	int i;
 
 	pump(0);
@@ -1081,18 +1139,33 @@ void DG_DrawFrame()
 		updatePalette();
 	}
 
-	convertFrame(buffer);
+	DGP_Plan(&s_Present, presentSource(), buffer->gen, buffer->drawnFull,
+	         s_NeedRedraw, &plan);
+	if (plan.skip)
+	{
+		// Nothing changed. The frame callback state stays as it is, so the
+		// next call tries again.
+		return;
+	}
+
+	DGP_Convert(&s_Present, buffer->data, presentSource(), s_Pal565,
+	            s_Pal8888, &plan);
 
 	wl_surface_attach(s_Surface, buffer->wl_buffer, 0, 0);
-	if (buffer->drawnFull)
+	if (plan.whole_buffer)
 	{
-		damage(s_PicX, s_PicY, s_PicWidth, s_PicHeight);
+		damage(0, 0, s_Width, s_Height);
 	}
 	else
 	{
-		damage(0, 0, s_Width, s_Height);
-		buffer->drawnFull = 1;
+		for (i = 0; i < plan.nrects; i++)
+		{
+			damage(s_PicX, s_PicY + plan.rect[i].y0, s_PicWidth,
+			       plan.rect[i].y1 - plan.rect[i].y0);
+		}
 	}
+	buffer->drawnFull = 1;
+	buffer->gen = plan.gen;
 
 	if (!s_FrameCallback)
 	{
