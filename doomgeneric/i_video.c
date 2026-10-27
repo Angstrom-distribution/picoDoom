@@ -337,7 +337,7 @@ void I_FinishUpdate (void)
     line_in  = (unsigned char *) I_VideoBuffer;
     line_out = (unsigned char *) DG_ScreenBuffer;
 
-    y = SCREENHEIGHT;
+    y = DG_DirectVideoBuffer ? 0 : SCREENHEIGHT;
 
     while (y--)
     {

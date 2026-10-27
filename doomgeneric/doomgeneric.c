@@ -5,6 +5,7 @@
 #include "doomgeneric.h"
 
 pixel_t* DG_ScreenBuffer = NULL;
+int DG_DirectVideoBuffer = 0;
 
 void M_FindResponseFile(void);
 void D_DoomMain (void);
