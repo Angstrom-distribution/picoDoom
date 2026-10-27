@@ -18,3 +18,12 @@ doomgeneric/test/*_test
 doomgeneric/test/*_test_armel
 doomgeneric/test/modtest
 doomgeneric/test/modtest_armel
+doomgeneric/test/obj-native/
+doomgeneric/test/obj-armel/
+doomgeneric/test/present_hl
+doomgeneric/test/present_hl_armel
+doomgeneric/test/present_bench
+doomgeneric/test/present_bench_armel
+doomgeneric/test/present_pak_test_san
+doomgeneric/test/ref_convert.c
+doomgeneric/test/freedoom1.wad
