@@ -30,6 +30,7 @@ typedef struct
     unsigned int period_frames;
     unsigned int periods;
     unsigned int xruns;
+    unsigned long boundary;     // set by the SetParams calls
 } pcm_t;
 
 int PCM_Open(pcm_t *pcm, int card, int device);
@@ -40,6 +41,40 @@ int PCM_Open(pcm_t *pcm, int card, int device);
 
 int PCM_SetParams(pcm_t *pcm, unsigned int rate, unsigned int period_frames,
                   unsigned int periods);
+
+// The same for the non-blocking mode (no audio thread). The stream starts
+// when start_frames are queued, an underrun never stops it (stop_threshold
+// is the boundary) and the kernel overwrites every period that was played
+// with silence, so an underrun plays zeros, never old samples.
+
+int PCM_SetParamsTick(pcm_t *pcm, unsigned int rate,
+                      unsigned int period_frames, unsigned int periods,
+                      unsigned int start_frames);
+
+// Switch the descriptor to non-blocking writes, or back.
+
+int PCM_SetNonblock(pcm_t *pcm, int on);
+
+// Frames queued and not yet played. After an underrun in the tick mode the
+// value is negative: minus the number of frames of silence played since the
+// queue ran dry.
+
+int PCM_Delay(pcm_t *pcm, long *frames);
+
+// Moves the write pointer forward by frames, which brings it up to the
+// read pointer after an underrun (frames = -delay).
+
+int PCM_Forward(pcm_t *pcm, unsigned long frames);
+
+// One non-blocking write. Returns the number of frames written, which may
+// be fewer than count, 0 if the buffer is full, or -errno.
+
+int PCM_WriteSome(pcm_t *pcm, const int16_t *frames, unsigned int count);
+
+// PREPARE after an error state; counts an xrun. The stream restarts with the
+// next start_threshold worth of frames.
+
+int PCM_Recover(pcm_t *pcm);
 
 // Blocks until all frames are written. Underruns are recovered.
 
