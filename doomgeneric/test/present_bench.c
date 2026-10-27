@@ -111,24 +111,24 @@ static void jobNew(void *p)
 {
 	job_data_t *d = p;
 
-	DGP_Convert565((uint16_t *)d->buf + (size_t)d->g.picy * d->g.width
-	               + d->g.picx, d->g.width, d->src[0], d->pal, &d->g, NULL);
+	DGP_Convert565((uint16_t *)d->buf + (size_t)d->g.picy * (d->g.stride / 2)
+	               + d->g.picx, d->g.stride / 2, d->src[0], d->pal, &d->g, NULL);
 }
 
 static void jobNew32(void *p)
 {
 	job_data_t *d = p;
 
-	DGP_Convert565P32((uint16_t *)d->buf + (size_t)d->g.picy * d->g.width
-	                  + d->g.picx, d->g.width, d->src[0], d->pal32, &d->g, NULL);
+	DGP_Convert565P32((uint16_t *)d->buf + (size_t)d->g.picy * (d->g.stride / 2)
+	                  + d->g.picx, d->g.stride / 2, d->src[0], d->pal32, &d->g, NULL);
 }
 
 static void jobNew32Mask(void *p)
 {
 	job_data_t *d = p;
 
-	DGP_Convert565P32((uint16_t *)d->buf + (size_t)d->g.picy * d->g.width
-	                  + d->g.picx, d->g.width, d->src[0], d->pal32, &d->g,
+	DGP_Convert565P32((uint16_t *)d->buf + (size_t)d->g.picy * (d->g.stride / 2)
+	                  + d->g.picx, d->g.stride / 2, d->src[0], d->pal32, &d->g,
 	                  d->mask);
 }
 
@@ -143,8 +143,8 @@ static void jobNewMask(void *p)
 {
 	job_data_t *d = p;
 
-	DGP_Convert565((uint16_t *)d->buf + (size_t)d->g.picy * d->g.width
-	               + d->g.picx, d->g.width, d->src[0], d->pal, &d->g, d->mask);
+	DGP_Convert565((uint16_t *)d->buf + (size_t)d->g.picy * (d->g.stride / 2)
+	               + d->g.picx, d->g.stride / 2, d->src[0], d->pal, &d->g, d->mask);
 }
 
 static void jobCompare(void *p)
@@ -264,7 +264,7 @@ int main(int argc, char **argv)
 		int y, runs = 0;
 
 		DGP_GeomSet(&d->g, gc->bw, gc->bh, gc->px, gc->py, gc->pw, gc->ph, 2);
-		d->buf = calloc(1, (size_t)gc->bw * gc->bh * 2 + 64);
+		d->buf = calloc(1, (size_t)DGP_Stride(gc->bw, 2) * gc->bh + 64);
 		d->src[0] = frames[0];
 		d->src[1] = frames[1];
 		d->pal = p565;
