@@ -722,6 +722,106 @@ static void test_mono_random(void)
     free(music);
 }
 
+// The idle shortcut of the audio thread: a period with no voice and no
+// music is not mixed and is written as zeros. 200 periods with voices that
+// start and stop at random, once always mixing and once with the shortcut
+// (the decision is SNDMIX_IsIdle); the outputs must be identical.
+
+static void test_idle(void)
+{
+    enum { NP = 200 };
+    sfx_t *s[4];
+    int32_t acc_a[2 * PERIOD] = { 0 }, acc_b[2 * PERIOD] = { 0 };
+    int16_t oa[2 * PERIOD], ob[2 * PERIOD], zeros[2 * PERIOD], music[PERIOD];
+    sndvoice_t va[MAXV], vb[MAXV];
+    unsigned int h_a = 2166136261u, h_b = 2166136261u;
+    int p, k, i, mism = 0, idle_periods = 0, busy_periods = 0, music_periods = 0;
+
+    s[0] = synth("a", 22050, 1500, 2);
+    s[1] = synth("b", 11025, 900, 2);
+    s[2] = synth("c", 22050, 3000, 0);
+    s[3] = synth("d", 8000, 700, 2);
+    memset(va, 0, sizeof(va));
+    memset(vb, 0, sizeof(vb));
+    memset(zeros, 0, sizeof(zeros));
+    for (i = 0; i < PERIOD; ++i)
+    {
+        music[i] = (int16_t) rnd();
+    }
+
+    for (p = 0; p < NP; ++p)
+    {
+        int gain = 0, idle, starts;
+
+        // Mostly quiet: a voice starts in 1 of 6 periods and a running
+        // voice may be stopped with a chance of 1 in 16.
+
+        starts = rnd() % 6 == 0;
+
+        for (k = 0; k < MAXV; ++k)
+        {
+            if (starts && va[k].pos == NULL)
+            {
+                starts = 0;
+                const sfx_t *x = s[rnd() & 3];
+
+                va[k].pos = vb[k].pos = x->pcm;
+                va[k].end = vb[k].end = x->pcm + x->len;
+                va[k].frac = vb[k].frac = 0;
+                va[k].step = vb[k].step = SNDMIX_Step(x->rate, OUT_RATE);
+                SNDMIX_SetGains(&va[k], 1 + rnd() % 127, rnd() % 255);
+                vb[k].left = va[k].left;
+                vb[k].right = va[k].right;
+            }
+            else if (va[k].pos != NULL && rnd() % 16 == 0)
+            {
+                va[k].pos = vb[k].pos = NULL;
+            }
+        }
+        if (p % 40 >= 33)
+        {
+            gain = 1 + rnd() % 127;
+            ++music_periods;
+        }
+
+        // A: always mix.
+
+        SNDMIX_Mix(va, MAXV, acc_a, PERIOD);
+        if (gain > 0)
+        {
+            SNDMIX_MixMono(music, gain, acc_a, PERIOD);
+        }
+        SNDMIX_Output(acc_a, oa, PERIOD);
+
+        // B: the shortcut.
+
+        idle = gain <= 0 && SNDMIX_IsIdle(vb, MAXV);
+        if (idle)
+        {
+            memcpy(ob, zeros, sizeof(ob));
+            ++idle_periods;
+        }
+        else
+        {
+            SNDMIX_Mix(vb, MAXV, acc_b, PERIOD);
+            if (gain > 0)
+            {
+                SNDMIX_MixMono(music, gain, acc_b, PERIOD);
+            }
+            SNDMIX_Output(acc_b, ob, PERIOD);
+            ++busy_periods;
+        }
+
+        mism += memcmp(oa, ob, sizeof(oa)) != 0;
+        h_a = fnv(h_a, oa, sizeof(oa));
+        h_b = fnv(h_b, ob, sizeof(ob));
+    }
+    printf("  %d periods: %d idle, %d mixed, %d with music; FNV-1a %08x / %08x\n",
+           NP, idle_periods, busy_periods, music_periods, h_a, h_b);
+    report("idle shortcut equals always-mix", mism == 0 && h_a == h_b
+           && idle_periods > 20 && busy_periods > 20, "");
+}
+
 int main(int argc, char **argv)
 {
     const char *wav = argc > 1 ? argv[1] : "render.wav";
@@ -742,6 +842,7 @@ int main(int argc, char **argv)
     test_steps();
     test_mono_vectors();
     test_mono_random();
+    test_idle();
     test_render(wav);
     printf("%s\n", nfail ? "SOME TESTS FAILED" : "ALL PASSED");
     return nfail != 0;
