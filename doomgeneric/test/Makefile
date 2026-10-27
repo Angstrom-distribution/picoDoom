@@ -24,8 +24,9 @@ MUSSRC = musplay_test.c ../i_musindex.c ../i_musdec_flac.c ../i_musplay.c \
          ../i_sndmix.c ../i_musindex.h ../i_musdec.h ../i_musplay.h \
          ../i_sndmix.h ../dr_flac.h
 
-all: sndmix_test musplay_test modtest $(WORK)/music.flac $(WORK)/music.raw
+all: sndmix_test tick_test musplay_test modtest $(WORK)/music.flac $(WORK)/music.raw
 	./sndmix_test render.wav $(WAD)
+	./tick_test
 	./musplay_test $(WORK)/music.flac $(WORK)/music.raw $(WAD)
 	./modtest $(WORK)/mod $(WORK)/lump.bin $(WORK)/music.raw
 
@@ -51,11 +52,18 @@ modtest: $(MODSRC)
 modtest_armel: $(MODSRC)
 	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(MODFLAGS) -o $@ modtest.c
 
+tick_test: tick_test.c ../i_alsatick.c ../i_alsatick.h
+	$(CC) $(CFLAGS) $(INC) -o $@ tick_test.c
+
+tick_test_armel: tick_test.c ../i_alsatick.c ../i_alsatick.h
+	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) -o $@ tick_test.c
+
 musplay_test: $(MUSSRC)
 	$(CC) $(CFLAGS) $(INC) -o $@ musplay_test.c
 
-armel: sndmix_test_armel musplay_test_armel modtest_armel $(WORK)/music.flac $(WORK)/music.raw
+armel: sndmix_test_armel tick_test_armel musplay_test_armel modtest_armel $(WORK)/music.flac $(WORK)/music.raw
 	qemu-arm-static ./sndmix_test_armel render-armel.wav $(WAD)
+	qemu-arm-static ./tick_test_armel
 	qemu-arm-static ./musplay_test_armel $(WORK)/music.flac $(WORK)/music.raw $(WAD)
 	qemu-arm-static ./modtest_armel $(WORK)/mod $(WORK)/lump.bin $(WORK)/music.raw
 
@@ -66,7 +74,7 @@ musplay_test_armel: $(MUSSRC)
 	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) -o $@ musplay_test.c
 
 clean:
-	rm -rf sndmix_test sndmix_test_armel musplay_test musplay_test_armel modtest modtest_armel \
+	rm -rf sndmix_test sndmix_test_armel tick_test tick_test_armel musplay_test musplay_test_armel modtest modtest_armel \
 	       render.wav render-armel.wav $(WORK)
 
 .PHONY: all armel clean
