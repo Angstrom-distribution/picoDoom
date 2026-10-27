@@ -20,7 +20,7 @@ The defaults keep the old behaviour. The settings and the damage counters are pr
 | option | meaning |
 |---|---|
 | `-present-direct` | The back end reads the engine's frame buffer itself, which saves a copy of 64,000 bytes per frame. |
-| `-presentmode old\|new` | The converter from the indexed frame to the buffer. `new` is unrolled for the window widths 200, 240 and 320 and has a generic two-pixels-per-store kernel for the others. With a 32-bit buffer `new` falls back to `old`. |
+| `-presentmode old\|new` | The converter from the indexed frame to the buffer. `new` is unrolled for the picture widths 200, 240 and 320 and has a generic two-pixels-per-store kernel for the others. With a 32-bit buffer `new` falls back to `old`. |
 | `-damage full\|sbar\|rows` | What is converted and damaged on each commit. `full` converts every row and damages the whole picture, `sbar` compares only the status bar rows with the previous frame, `rows` compares every row the picture samples and converts and damages only the rows that changed. A commit where no row changed is skipped. |
 | `-damage-rects N` | The most rectangles one commit damages, 1 to 16, default 4. |
 | `-damage-noskip` | Commit even when no row changed. |
