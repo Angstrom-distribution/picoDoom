@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 
 #include "deh_str.h"
 #include "i_alsamusic.h"
@@ -37,7 +38,18 @@
 
 #include "doomtype.h"
 
+// Only defined by <sys/resource.h> with _GNU_SOURCE; the value is Linux's.
+
+#if defined(__linux__) && !defined(RUSAGE_THREAD)
+#define RUSAGE_THREAD 1
+#endif
+
 #define NUM_VOICES 16
+
+#define AUDIO_PERIOD_MIN 64
+#define AUDIO_PERIOD_MAX 4096
+#define AUDIO_PERIODS_MIN 2
+#define AUDIO_PERIODS_MAX 16
 
 typedef struct
 {
@@ -75,6 +87,18 @@ static pcm_t pcm;
 static int32_t *mix_acc;                // 2 * period frames
 static int16_t *mix_out;                // 2 * period frames
 static int16_t *music_out;              // period frames, mono
+
+// Run-time options (-audio-period, -audio-periods), 0 = not given.
+
+static unsigned int opt_period;
+static unsigned int opt_periods;
+
+// Counters for the shutdown line. The audio thread owns them while it runs;
+// the main thread reads them after pthread_join.
+
+static unsigned int stat_writes;
+static unsigned long long stat_frames;
+static long thr_utime_us, thr_stime_us, thr_nvcsw, thr_nivcsw;
 
 // Not used: there is no resampling library, and no float math.
 
@@ -371,9 +395,52 @@ static void *MixThread(void *arg)
             mix_error = -err;
             break;
         }
+
+        ++stat_writes;
+        stat_frames += pcm.period_frames;
     }
 
+#ifdef RUSAGE_THREAD
+    {
+        struct rusage ru;
+
+        if (getrusage(RUSAGE_THREAD, &ru) == 0)
+        {
+            thr_utime_us = (long) ru.ru_utime.tv_sec * 1000000 + ru.ru_utime.tv_usec;
+            thr_stime_us = (long) ru.ru_stime.tv_sec * 1000000 + ru.ru_stime.tv_usec;
+            thr_nvcsw = ru.ru_nvcsw;
+            thr_nivcsw = ru.ru_nivcsw;
+        }
+    }
+#endif
+
     return NULL;
+}
+
+// The period for a fallback rate when -audio-period is given: the value
+// applies to 22050 Hz and is scaled by shifts like the default table.
+
+static unsigned int ScalePeriod(unsigned int period, unsigned int rate)
+{
+    if (rate >= 44100)
+    {
+        period <<= 1;
+    }
+    else if (rate <= 11025)
+    {
+        period >>= 1;
+    }
+
+    if (period < AUDIO_PERIOD_MIN)
+    {
+        period = AUDIO_PERIOD_MIN;
+    }
+    if (period > AUDIO_PERIOD_MAX)
+    {
+        period = AUDIO_PERIOD_MAX;
+    }
+
+    return period;
 }
 
 // Try one mode, then the rest of the default list if no rate is forced.
@@ -381,6 +448,7 @@ static void *MixThread(void *arg)
 static int OpenPCM(int card, int device, int forced_rate)
 {
     int err, i;
+    unsigned int period, periods;
 
     err = PCM_Open(&pcm, card, device);
 
@@ -391,22 +459,37 @@ static int OpenPCM(int card, int device, int forced_rate)
 
     if (forced_rate > 0)
     {
-        unsigned int period = 64;
+        period = 64;
 
         while (period * 2 <= (unsigned int) forced_rate * 512 / 22050)
         {
             period *= 2;
         }
 
-        return PCM_SetParams(&pcm, forced_rate, period, 4);
+        if (opt_period != 0)
+        {
+            period = opt_period;
+        }
+
+        periods = opt_periods != 0 ? opt_periods : 4;
+
+        return PCM_SetParams(&pcm, forced_rate, period, periods);
     }
 
     err = -EINVAL;
 
     for (i = 0; i < arrlen(default_modes); ++i)
     {
-        err = PCM_SetParams(&pcm, default_modes[i].rate,
-                            default_modes[i].period, default_modes[i].periods);
+        period = default_modes[i].period;
+
+        if (opt_period != 0)
+        {
+            period = ScalePeriod(opt_period, default_modes[i].rate);
+        }
+
+        periods = opt_periods != 0 ? opt_periods : default_modes[i].periods;
+
+        err = PCM_SetParams(&pcm, default_modes[i].rate, period, periods);
 
         if (err == 0)
         {
@@ -415,6 +498,33 @@ static int OpenPCM(int card, int device, int forced_rate)
     }
 
     return err;
+}
+
+// Read a numeric switch. A value out of range prints one line and is
+// ignored: the game must still run.
+
+static unsigned int ParseAudioArg(const char *name, unsigned int min,
+                                  unsigned int max)
+{
+    int i = M_CheckParmWithArgs((char *) name, 1);
+    long val;
+    char *end;
+
+    if (i <= 0)
+    {
+        return 0;
+    }
+
+    val = strtol(myargv[i + 1], &end, 10);
+
+    if (*end != '\0' || val < (long) min || val > (long) max)
+    {
+        printf("I_ALSA_InitSound: %s %s: need %u to %u, ignored\n", name,
+               myargv[i + 1], min, max);
+        return 0;
+    }
+
+    return (unsigned int) val;
 }
 
 static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
@@ -453,6 +563,28 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
         forced_rate = atoi(myargv[i + 1]);
     }
 
+    //!
+    // @arg <frames>
+    //
+    // Ask the sound device for periods of this many frames (64 to 4096)
+    // instead of the default. The value applies to 22050 Hz; other rates
+    // use it scaled in powers of two. The size the device grants is
+    // printed. Larger periods mean fewer wakeups of the audio thread and a
+    // longer delay before a sound is heard.
+    //
+
+    opt_period = ParseAudioArg("-audio-period", AUDIO_PERIOD_MIN,
+                               AUDIO_PERIOD_MAX);
+
+    //!
+    // @arg <n>
+    //
+    // Ask the sound device for this many periods (2 to 16) instead of 4.
+    //
+
+    opt_periods = ParseAudioArg("-audio-periods", AUDIO_PERIODS_MIN,
+                                AUDIO_PERIODS_MAX);
+
     err = OpenPCM(card, device, forced_rate);
 
     if (err < 0)
@@ -487,6 +619,9 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
         goto fail;
     }
 
+    stat_writes = 1;
+    stat_frames = pcm.period_frames;
+
     // Block all signals around thread creation, so that the new thread
     // inherits a full mask and signals always reach the main thread.
 
@@ -503,7 +638,7 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
 
     sound_initialized = true;
 
-    printf("I_ALSA_InitSound: hw:%d,%d %u Hz, %u frames x %u periods\n",
+    printf("I_ALSA_InitSound: hw:%d,%d %u Hz, %u frames x %u periods, mode=thread\n",
            card, device, pcm.rate, pcm.period_frames, pcm.periods);
 
     return true;
@@ -541,6 +676,12 @@ static void I_ALSA_ShutdownSound(void)
     // The sound data is not freed: the process is exiting.
 
     printf("I_ALSA_ShutdownSound: %u xruns\n", pcm.xruns);
+    printf("I_ALSA_Stats: mode=thread rate=%u period=%u periods=%u writes=%u "
+           "frames=%llu idle=0 xruns=%u underruns=0 short_writes=0 "
+           "min_delay=-1 thr_utime_us=%ld thr_stime_us=%ld thr_nvcsw=%ld "
+           "thr_nivcsw=%ld\n",
+           pcm.rate, pcm.period_frames, pcm.periods, stat_writes, stat_frames,
+           pcm.xruns, thr_utime_us, thr_stime_us, thr_nvcsw, thr_nivcsw);
 
     if (mix_error != 0 && mix_error != EBADFD)
     {
