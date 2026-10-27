@@ -1,4 +1,4 @@
-# Agent guide for picoDoom
+# Agent guide for PicoDoom
 
 PicoDoom is Doom for small handhelds, a fork of doomgeneric. Read the README for the scope and what is decided.
 

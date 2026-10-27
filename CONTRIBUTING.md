@@ -1,4 +1,4 @@
-# Contributing to picoDoom
+# Contributing to PicoDoom
 
 ## Reporting bugs and requesting features
 
