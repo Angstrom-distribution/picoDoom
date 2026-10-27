@@ -71,13 +71,13 @@ The window follows the size the compositor gives it. The 320x200 picture is fitt
 `-present-direct` makes the Wayland back end read the engine's frame buffer itself instead of a copy of it. `-presentmode old|new` picks the converter from the indexed frame to the buffer (`new` is an unrolled RGB565 converter; with a 32-bit buffer it falls back to `old`). `-damage full|sbar|rows` picks what is converted and damaged on each commit: `full` converts every row and damages the whole picture, `sbar` compares only the status bar rows against the previous frame, `rows` compares every row the picture samples. `-damage-rects N` (1 to 16, default 4) is the most rectangles one commit damages, and `-damage-noskip` commits even when no row changed. The defaults are the old behaviour. The settings and the damage counters are printed on start and on exit.
 
 ## Windows
-![Windows](screenshots/windows.png)
+![Windows](../screenshots/windows.png)
 
 ## X11 - Ubuntu
-![Ubuntu](screenshots/ubuntu.png)
+![Ubuntu](../screenshots/ubuntu.png)
 
 ## X11 - FreeBSD
-![FreeBSD](screenshots/freebsd.png)
+![FreeBSD](../screenshots/freebsd.png)
 
 ## SDL
-![SDL](screenshots/sdl.png)
+![SDL](../screenshots/sdl.png)
