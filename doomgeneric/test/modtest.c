@@ -22,6 +22,7 @@ int myargc;
 static int rate = 22050;
 
 int I_ALSA_SoundRate(void) { return rate; }
+void I_ALSA_Service(int deep) { }
 
 int M_CheckParmWithArgs(char *check, int num_args)
 {

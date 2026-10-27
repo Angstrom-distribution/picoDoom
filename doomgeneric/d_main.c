@@ -73,6 +73,7 @@
 #include "statdump.h"
 
 #include "d_main.h"
+#include "i_alsatick.h"
 
 //
 // D-DoomLoop()
@@ -324,6 +325,8 @@ void D_Display (void)
 			       , 0, 0, SCREENWIDTH, SCREENHEIGHT, tics);
 	I_UpdateNoBlit ();
 	M_Drawer ();                            // menu is drawn even on top of wipes
+	if (I_ALSA_Service != NULL)
+	    I_ALSA_Service (0);                 // keep the sound queue filled
 	I_FinishUpdate ();                      // page flip or blit buffer
     } while (!done);
 }
