@@ -74,7 +74,7 @@ static geo_t explicitGeo(const char *name, int bw, int bh, int px, int py,
 	return g;
 }
 
-#define MAX_T1 24
+#define MAX_T1 32
 static geo_t t1geo[MAX_T1];
 static int nt1;
 static dgp_geom_t t1g[MAX_T1];
@@ -139,6 +139,42 @@ static void makePalettes(const uint8_t *rgb, uint16_t *p565, uint32_t *p8888)
 	}
 }
 
+// Bytes per buffer row: width * bpp rounded up to a multiple of four.
+static size_t strideOf(const geo_t *g)
+{
+	return (size_t)DGP_Stride(g->bw, g->bpp);
+}
+
+#define CANARY 0xA5
+
+// Fills a buffer with the canary byte, padding included.
+static void fillCanary(uint8_t *p, const geo_t *g)
+{
+	memset(p, CANARY, strideOf(g) * g->bh);
+}
+
+// True when the padding bytes after the last pixel of every row still hold
+// the canary: nothing wrote them.
+static int paddingIntact(const uint8_t *p, const geo_t *g)
+{
+	size_t stride = strideOf(g);
+	int y;
+	size_t i;
+
+	for (y = 0; y < g->bh; y++)
+	{
+		for (i = (size_t)g->bw * g->bpp; i < stride; i++)
+		{
+			if (p[y * stride + i] != CANARY)
+			{
+				return 0;
+			}
+		}
+	}
+
+	return 1;
+}
+
 // Compares the picture area of two buffers. Returns the first differing row
 // or -1.
 static int comparePicture(const uint8_t *a, const uint8_t *b, const geo_t *g)
@@ -147,11 +183,58 @@ static int comparePicture(const uint8_t *a, const uint8_t *b, const geo_t *g)
 
 	for (y = 0; y < g->ph; y++)
 	{
-		size_t off = ((size_t)(g->py + y) * g->bw + g->px) * g->bpp;
+		size_t off = (size_t)(g->py + y) * strideOf(g) + g->px * g->bpp;
 
 		if (memcmp(a + off, b + off, (size_t)g->pw * g->bpp) != 0)
 		{
 			return y;
+		}
+	}
+
+	return -1;
+}
+
+// The picture area against a reference that does not use the converters or
+// their row arithmetic: pixel by pixel from the scaling tables and the
+// palette, each pixel addressed from the stride in bytes. Returns the first
+// bad row or -1.
+static int checkPictureIndependent(const uint8_t *buf, const geo_t *g,
+                                   const dgp_geom_t *gg, const uint8_t *src,
+                                   const uint16_t *p565, const uint32_t *p8888)
+{
+	size_t stride = strideOf(g);
+	int x, y;
+
+	for (y = 0; y < g->ph; y++)
+	{
+		const uint8_t *line = src + gg->ymap[y];
+
+		for (x = 0; x < g->pw; x++)
+		{
+			const uint8_t *px = buf + (size_t)(g->py + y) * stride
+			                    + (size_t)(g->px + x) * g->bpp;
+			uint8_t idx = line[gg->xmap[x]];
+
+			if (g->bpp == 2)
+			{
+				uint16_t v;
+
+				memcpy(&v, px, 2);
+				if (v != p565[idx])
+				{
+					return y;
+				}
+			}
+			else
+			{
+				uint32_t v;
+
+				memcpy(&v, px, 4);
+				if (v != p8888[idx])
+				{
+					return y;
+				}
+			}
 		}
 	}
 
@@ -186,6 +269,13 @@ static void t1Init(void)
 	t1geo[nt1++] = fit("300x100 stretch", 300, 100, 1, 2);
 	t1geo[nt1++] = explicitGeo("7x9 odd", 9, 9, 1, 0, 7, 9, 2);
 	t1geo[nt1++] = fit("240x150 xrgb", 240, 150, 0, 4);
+	// Odd widths in RGB565: the rows are padded to four bytes.
+	t1geo[nt1++] = fit("161x120 padded", 161, 120, 0, 2);
+	t1geo[nt1++] = fit("159x150 padded", 159, 150, 0, 2);
+	t1geo[nt1++] = fit("303x226 padded", 303, 226, 0, 2);
+	t1geo[nt1++] = fit("321x240 padded fullscreen", 321, 240, 0, 2);
+	t1geo[nt1++] = fit("161x120 stretch padded", 161, 120, 1, 2);
+	t1geo[nt1++] = fit("161x120 xrgb", 161, 120, 0, 4);
 
 	for (i = 0; i < nt1; i++)
 	{
@@ -216,17 +306,18 @@ static void t1Frame(const uint8_t *src, const uint16_t *p565,
 	for (i = 0; i < nt1; i++)
 	{
 		const geo_t *g = &t1geo[i];
-		size_t size = (size_t)g->bw * g->bh * g->bpp;
+		size_t stride = strideOf(g);
+		size_t size = stride * g->bh;
 		int bad;
 
-		memset(t1a, 0xAA + frameno, size);
-		memset(t1b, 0x55 - frameno, size);
+		fillCanary(t1a, g);
+		fillCanary(t1b, g);
 
 		DGP_ConvertOld(t1a, &t1g[i], src, p565, p8888, NULL);
 		if (g->bpp == 2)
 		{
-			DGP_Convert565((uint16_t *)t1b + (size_t)g->py * g->bw + g->px,
-			               g->bw, src, p565, &t1g[i], NULL);
+			DGP_Convert565((uint16_t *)t1b + g->py * (stride / 2) + g->px,
+			               (int)(stride / 2), src, p565, &t1g[i], NULL);
 		}
 		else
 		{
@@ -255,6 +346,19 @@ static void t1Frame(const uint8_t *src, const uint16_t *p565,
 			failLine("T1 frame %d geometry %s: row %d differs", frameno,
 			         g->name, bad);
 		}
+		bad = checkPictureIndependent(t1b, g, &t1g[i], src, p565, p8888);
+		if (bad >= 0)
+		{
+			t1s.fails++;
+			failLine("T1 frame %d geometry %s: row %d differs from the "
+			         "table reference", frameno, g->name, bad);
+		}
+		if (!paddingIntact(t1a, g) || !paddingIntact(t1b, g))
+		{
+			t1s.fails++;
+			failLine("T1 frame %d geometry %s: row padding was written",
+			         frameno, g->name);
+		}
 
 		// The word palette variant.
 		if (g->bpp == 2)
@@ -266,9 +370,15 @@ static void t1Frame(const uint8_t *src, const uint16_t *p565,
 			{
 				pal32[k] = p565[k];
 			}
-			memset(t1b, 0x33 + frameno, size);
-			DGP_Convert565P32((uint16_t *)t1b + (size_t)g->py * g->bw + g->px,
-			                  g->bw, src, pal32, &t1g[i], NULL);
+			fillCanary(t1b, g);
+			DGP_Convert565P32((uint16_t *)t1b + g->py * (stride / 2) + g->px,
+			                  (int)(stride / 2), src, pal32, &t1g[i], NULL);
+			if (!paddingIntact(t1b, g))
+			{
+				t1s.fails++;
+				failLine("T1 frame %d geometry %s: word palette wrote padding",
+				         frameno, g->name);
+			}
 			bad = comparePicture(t1a, t1b, g);
 			if (bad >= 0)
 			{
@@ -281,7 +391,8 @@ static void t1Frame(const uint8_t *src, const uint16_t *p565,
 
 		// The same with a random set of rows, over the whole buffer: the
 		// rows that are not converted must keep what was there.
-		if (g->bpp == 2 && (i == 0 || i == 6 || i == 7 || i == 9))
+		if (g->bpp == 2 && (i == 0 || i == 6 || i == 7 || i == 9
+		 || stride != (size_t)g->bw * g->bpp))
 		{
 			uint8_t mask[1024];
 			uint8_t flag[DGP_SRC_H];
@@ -296,11 +407,11 @@ static void t1Frame(const uint8_t *src, const uint16_t *p565,
 				mask[y] = flag[t1g[i].yrow[y]];
 			}
 
-			memset(t1a, 0xAA + frameno, size);
-			memset(t1b, 0xAA + frameno, size);
+			fillCanary(t1a, g);
+			fillCanary(t1b, g);
 			DGP_ConvertOld(t1a, &t1g[i], src, p565, p8888, mask);
-			DGP_Convert565((uint16_t *)t1b + (size_t)g->py * g->bw + g->px,
-			               g->bw, src, p565, &t1g[i], mask);
+			DGP_Convert565((uint16_t *)t1b + g->py * (stride / 2) + g->px,
+			               (int)(stride / 2), src, p565, &t1g[i], mask);
 			if (memcmp(t1a, t1b, size) != 0)
 			{
 				t1s.maskfails++;
@@ -371,18 +482,18 @@ static void simBuffers(sim_t *s)
 	const geo_t *g = &simGeo[s->geo[s->cur]];
 	int i;
 
-	s->size = (size_t)g->bw * g->bh * g->bpp;
+	s->size = strideOf(g) * g->bh;
 	for (i = 0; i < MAX_BUFS; i++)
 	{
 		s->buf[i] = realloc(s->buf[i], s->size);
-		memset(s->buf[i], 0, s->size);
+		memset(s->buf[i], CANARY, s->size);
 		s->gen[i] = 0;
 		s->drawn[i] = 0;
 	}
 	s->screen = realloc(s->screen, s->size);
 	s->ref = realloc(s->ref, s->size);
-	memset(s->screen, 0, s->size);
-	memset(s->ref, 0, s->size);
+	memset(s->screen, CANARY, s->size);
+	memset(s->ref, CANARY, s->size);
 }
 
 static void simResize(sim_t *s, const uint8_t *src)
@@ -440,7 +551,7 @@ static void simShow(const sim_t *s, int frame, const char *what, const uint8_t *
 	for (i = 0; i < s->size && a[i] == b[i]; i++)
 	{
 	}
-	row = (int)(i / ((size_t)g->bw * g->bpp));
+	row = (int)(i / strideOf(g));
 	failLine("T2 %s frame %d: %s differs, first at buffer row %d (picture row %d)",
 	         s->name, frame, what, row, row - g->py);
 }
@@ -580,7 +691,8 @@ static void simFrame(sim_t *s, const uint8_t *src, const uint8_t *rgb,
 			}
 			for (y = plan.rect[i].y0; y < plan.rect[i].y1; y++)
 			{
-				size_t off = ((size_t)(g->py + y) * g->bw + g->px) * g->bpp;
+				size_t off = (size_t)(g->py + y) * strideOf(g)
+				             + g->px * g->bpp;
 
 				memcpy(s->screen + off, s->buf[pick] + off,
 				       (size_t)g->pw * g->bpp);
@@ -626,6 +738,8 @@ static void simsInit(void)
 	simGeo[nsimGeo++] = fit("240x302", 240, 302, 0, 2);	// 3 portrait
 	simGeo[nsimGeo++] = fit("320x240", 320, 240, 0, 2);	// 4 landscape
 	simGeo[nsimGeo++] = explicitGeo("203x151", 203, 151, 1, 0, 201, 151, 2);
+	simGeo[nsimGeo++] = fit("161x120", 161, 120, 0, 2);	// 6 padded rows
+	simGeo[nsimGeo++] = fit("303x226", 303, 226, 0, 2);	// 7 padded rows
 
 	// T2: the damage property
 	for (gi = 0; gi < 3; gi++)
@@ -645,6 +759,16 @@ static void simsInit(void)
 			}
 		}
 	}
+	// Odd widths: padded rows, with a resize between two padded sizes. The
+	// canary in the padding must survive in every buffer and on the screen.
+	for (d = 0; d < 2; d++)
+	{
+		for (p = 0; p < 5; p++)
+		{
+			simNew("T2", 6, 7, damages[d], 4, pats[p], DGP_MODE_NEW, 1);
+		}
+	}
+	simNew("T2", 6, 7, DGP_DAMAGE_ROWS, 4, P_ALT, DGP_MODE_OLD, 1);
 	// The old converter with the same planner.
 	simNew("T2", 0, 1, DGP_DAMAGE_ROWS, 4, P_ALT, DGP_MODE_OLD, 1);
 	simNew("T2", 0, 1, DGP_DAMAGE_SBAR, 4, P_LCG2, DGP_MODE_OLD, 1);
@@ -775,6 +899,42 @@ static void unitCases(void)
 	}
 }
 
+// The stride rule: width * bpp rounded up to four bytes, and unchanged when
+// that is already a multiple of four, so the even widths keep their layout.
+static void strideCases(void)
+{
+	int w, bpp;
+
+	for (bpp = 2; bpp <= 4; bpp += 2)
+	{
+		for (w = 1; w <= 1300; w++)
+		{
+			int s = DGP_Stride(w, bpp);
+			dgp_geom_t g;
+
+			if (s % 4 != 0 || s < w * bpp || s - w * bpp > 3
+			 || ((w * bpp) % 4 == 0 && s != w * bpp))
+			{
+				failLine("unit stride: width %d bpp %d gave %d", w, bpp, s);
+				continue;
+			}
+			memset(&g, 0, sizeof(g));
+			if (DGP_GeomSet(&g, w, 2, 0, 0, w, 2, bpp) < 0 || g.stride != s)
+			{
+				failLine("unit stride: DGP_GeomSet stride %d, expected %d for "
+				         "width %d bpp %d", g.stride, s, w, bpp);
+			}
+			DGP_GeomFree(&g);
+		}
+	}
+	// The sizes the board uses: nothing changes for them.
+	if (DGP_Stride(320, 2) != 640 || DGP_Stride(240, 2) != 480
+	 || DGP_Stride(201, 4) != 804 || DGP_Stride(161, 2) != 324)
+	{
+		failLine("unit stride: known sizes");
+	}
+}
+
 // ----------------------------------------------------------------- public
 
 void PC_Init(int quick)
@@ -868,6 +1028,14 @@ int PC_Report(void)
 
 		unitCases();
 		printf("unit cases (unchanged frame, redraw request, -damage-noskip, rows compared): %s\n",
+		       s_Fails == before ? "passed" : "FAILED");
+	}
+
+	{
+		int before = s_Fails;
+
+		strideCases();
+		printf("unit cases (row stride: multiple of four, unchanged for even widths): %s\n",
 		       s_Fails == before ? "passed" : "FAILED");
 	}
 
