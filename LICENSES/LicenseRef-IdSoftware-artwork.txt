@@ -1,0 +1,5 @@
+The pictures in screenshots/ show the game DOOM. Its artwork is copyright
+Id Software, Inc. and is not covered by the licence of this repository's
+source code. The doomgeneric project publishes the pictures to show its
+platform ports; they are kept here unchanged so that merges from upstream
+stay clean. Do not reuse them elsewhere.
