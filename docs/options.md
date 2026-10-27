@@ -1,6 +1,6 @@
 # Command line options
 
-The options below are the ones PicoDoom adds to doomgeneric's Wayland build. The engine's own options (`-iwad`, `-timedemo`, `-playdemo`, `-warp` and so on) are unchanged. A bad value prints one line and the default is used.
+The options below are the ones PicoDoom adds to doomgeneric's Wayland build. The engine's own options (`-iwad`, `-timedemo`, `-playdemo`, `-warp` and so on) are unchanged. A bad value of a window or present option (`-aspect`, `-presentmode`, `-damage`, `-damage-rects`, `-keymap`) stops the game with an error message. A bad value of a sound option (`-audio-mode`, `-audio-period`, `-audio-periods`, `-audio-depth`) prints one line and the default is used.
 
 ## Window
 
@@ -39,4 +39,6 @@ The defaults keep the old behaviour. The settings and the damage counters are pr
 | `-audio-idle` | Write a block of zeros instead of mixing when no effect and no music is playing. The output does not change. |
 | `-musicdir DIR` | The directory with the music pack. The default is the `DOOM_MUSIC_DIR` environment variable, then `/home/root/doom/music`. |
 
-When the sound device cannot be opened the game prints one line and runs silent. The audio thread or tick fill counts underruns and prints the number when the game exits.
+When the sound device cannot be opened the game prints one line and runs silent. `-nosfx` also leaves the music silent, because the music is mixed by the sound module, and music plays only when the device runs at 22050 Hz.
+
+The game prints the audio and present settings at start (`I_ALSA_InitSound`, `DG_Init`). At exit it prints one `I_ALSA_Stats` line (mode, rate, period, periods, writes, frames, xruns, underruns, and the audio thread's CPU time and context switches) and one `DG_PresentStats` line (draws, commits, skipped commits, rows converted and damaged, bytes damaged).

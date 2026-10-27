@@ -4,7 +4,7 @@ PicoDoom reads WAD files, demo lumps, music files and command lines that come fr
 
 ## Input
 
-WADs and demos are parsed by the Doom engine code, which was written for trusted files; PicoDoom does not change that. The music pack, a directory of FLAC files and an index, is parsed by PicoDoom's own code and by dr_flac. A truncated or corrupt file must play as silence and must not crash the game; reports of a file that does are security issues. Run the game as an ordinary user.
+WADs and demos are parsed by the Doom engine code, which was written for trusted files; PicoDoom does not change that. The music pack, a directory of FLAC files and an index, is parsed by PicoDoom's own code and by dr_flac. A truncated file must play as silence and must not crash the game; the decoder does not check the FLAC CRC, so a damaged file can play as noise, and a file is limited to 64 MiB. Reports of a file that crashes the game are security issues. Run the game as an ordinary user.
 
 ## Reporting a vulnerability
 
