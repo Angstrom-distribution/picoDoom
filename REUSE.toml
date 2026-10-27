@@ -26,7 +26,7 @@ path = [
   "LICENSE",
   "LICENSES/**",
   "doomgeneric.sln",
-  "screenshots/**",
+  "README.TXT",
   "doomgeneric/**",
 ]
 precedence = "aggregate"
@@ -40,3 +40,10 @@ path = [
 precedence = "override"
 SPDX-FileCopyrightText = "David Reid"
 SPDX-License-Identifier = "Unlicense OR MIT-0"
+
+[[annotations]]
+path = [
+  "screenshots/**",
+]
+SPDX-FileCopyrightText = "Id Software, Inc.; the doomgeneric authors"
+SPDX-License-Identifier = "LicenseRef-IdSoftware-artwork"
