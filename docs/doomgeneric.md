@@ -81,3 +81,18 @@ The window follows the size the compositor gives it. The 320x200 picture is fitt
 
 ## SDL
 ![SDL](../screenshots/sdl.png)
+
+## Configuration files
+
+The engine reads `default.cfg` and `doomgenericdoom.cfg` from the working directory at start and writes them back at exit. `default.cfg` holds the game settings, including the game keys such as `key_fire`; `doomgenericdoom.cfg` holds the menu keys such as `key_menu_confirm`, `key_menu_back` and `key_menu_left`.
+
+Key values in these files are PC scancodes, not Doom key codes: 28 is Enter, 75 the left arrow, 27 the key `]`. A pad without a keyboard can fire and confirm with one key and go back with another:
+
+```
+key_fire 28
+key_menu_confirm 28
+key_menu_back 27
+key_menu_left 75
+```
+
+The keys must also reach the engine, which `-keymap` does: `-keymap 28=enter,429=nextweapon` sends the centre key as Enter and a second key as the next-weapon action, which is bound to `]` by default.
