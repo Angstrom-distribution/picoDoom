@@ -21,19 +21,74 @@
 
 #include "dg_present.h"
 
+// 32-bit access to byte and halfword arrays.
+typedef uint32_t __attribute__((__may_alias__)) dgp_u32;
+
 void DGP_GeomFree(dgp_geom_t *g)
 {
 	free(g->xmap);
 	free(g->ymap);
 	free(g->yrow);
+	free(g->xoff);
 	memset(g, 0, sizeof(*g));
+}
+
+static const uint8_t s_Pat200[5] = { 0, 2, 4, 5, 7 };
+static const uint8_t s_Pat240[3] = { 0, 2, 3 };
+
+// Finds the repeating pattern of the source columns and the unrolled kernel
+// that matches it. The pattern is checked against every output column, so a
+// kernel is only used when it gives exactly the table's columns.
+static void findPattern(dgp_geom_t *g)
+{
+	int p, i;
+
+	g->pat_p = g->pat_q = 0;
+	g->kernel = DGP_K_GENERIC;
+
+	for (p = 1; p <= 8 && 2 * p <= g->picw; p++)
+	{
+		int q = g->xoff[p] - g->xoff[0];
+
+		for (i = 0; i + p < g->picw; i++)
+		{
+			if (g->xoff[i + p] != g->xoff[i] + q)
+			{
+				break;
+			}
+		}
+		if (i + p >= g->picw)
+		{
+			g->pat_p = p;
+			g->pat_q = q;
+			for (i = 0; i < p; i++)
+			{
+				g->pat_o[i] = g->xoff[i];
+			}
+			break;
+		}
+	}
+
+	if (g->pat_p == 5 && g->pat_q == 8 && memcmp(g->pat_o, s_Pat200, 5) == 0)
+	{
+		g->kernel = DGP_K_200;
+	}
+	else if (g->pat_p == 3 && g->pat_q == 4
+	      && memcmp(g->pat_o, s_Pat240, 3) == 0)
+	{
+		g->kernel = DGP_K_240;
+	}
+	else if (g->pat_p == 1 && g->pat_q == 1 && g->pat_o[0] == 0)
+	{
+		g->kernel = DGP_K_320;
+	}
 }
 
 int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
                 int picw, int pich, int bpp)
 {
 	int *xmap, *ymap;
-	uint16_t *yrow;
+	uint16_t *yrow, *xoff;
 	int i;
 
 	g->width = width;
@@ -59,7 +114,12 @@ int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
 	{
 		g->yrow = yrow;
 	}
-	if (!xmap || !ymap || !yrow)
+	xoff = realloc(g->xoff, picw * sizeof(*xoff));
+	if (xoff)
+	{
+		g->xoff = xoff;
+	}
+	if (!xmap || !ymap || !yrow || !xoff)
 	{
 		return -1;
 	}
@@ -68,6 +128,7 @@ int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
 	for (i = 0; i < picw; i++)
 	{
 		g->xmap[i] = ((2 * i + 1) * DGP_SRC_W) / (2 * picw);
+		g->xoff[i] = g->xmap[i];
 	}
 	for (i = 0; i < pich; i++)
 	{
@@ -75,7 +136,24 @@ int DGP_GeomSet(dgp_geom_t *g, int width, int height, int picx, int picy,
 		g->ymap[i] = g->yrow[i] * DGP_SRC_W;
 	}
 
+	findPattern(g);
+
 	return 0;
+}
+
+const char *DGP_KernelName(const dgp_geom_t *g)
+{
+	switch (g->kernel)
+	{
+	case DGP_K_200:
+		return "200";
+	case DGP_K_240:
+		return "240";
+	case DGP_K_320:
+		return "320";
+	}
+
+	return "generic";
 }
 
 void DGP_ConvertOld(void *data, const dgp_geom_t *g, const uint8_t *src,
@@ -121,8 +199,175 @@ void DGP_ConvertOld(void *data, const dgp_geom_t *g, const uint8_t *src,
 	}
 }
 
-// 32-bit loads of byte arrays, as the compare wants.
-typedef uint32_t __attribute__((__may_alias__)) dgp_u32;
+
+// Two output pixels per 32-bit store. All the source bytes of a group are
+// read before the first store, because a store through a halfword or word
+// pointer may alias the byte source as far as the compiler knows.
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define PAIR(a, b) (((uint32_t)pal[a] << 16) | pal[b])
+#else
+#define PAIR(a, b) ((uint32_t)pal[a] | ((uint32_t)pal[b] << 16))
+#endif
+
+// Width 200: outputs at source columns 0 2 4 5 7, then 8 more per period.
+static void kernel200(dgp_u32 *d, const uint8_t *s, const uint16_t *pal,
+                      int groups)
+{
+	while (groups-- > 0)
+	{
+		unsigned s0 = s[0], s2 = s[2], s4 = s[4], s5 = s[5], s7 = s[7];
+		unsigned s8 = s[8], s10 = s[10], s12 = s[12], s13 = s[13];
+		unsigned s15 = s[15];
+
+		d[0] = PAIR(s0, s2);
+		d[1] = PAIR(s4, s5);
+		d[2] = PAIR(s7, s8);
+		d[3] = PAIR(s10, s12);
+		d[4] = PAIR(s13, s15);
+		d += 5;
+		s += 16;
+	}
+}
+
+// Width 240: outputs at source columns 0 2 3, then 4 more per period.
+static void kernel240(dgp_u32 *d, const uint8_t *s, const uint16_t *pal,
+                      int groups)
+{
+	while (groups-- > 0)
+	{
+		unsigned s0 = s[0], s2 = s[2], s3 = s[3], s4 = s[4], s6 = s[6];
+		unsigned s7 = s[7];
+
+		d[0] = PAIR(s0, s2);
+		d[1] = PAIR(s3, s4);
+		d[2] = PAIR(s6, s7);
+		d += 3;
+		s += 8;
+	}
+}
+
+// Width 320: one to one.
+static void kernel320(dgp_u32 *d, const uint8_t *s, const uint16_t *pal,
+                      int groups)
+{
+	while (groups-- > 0)
+	{
+		unsigned s0 = s[0], s1 = s[1], s2 = s[2], s3 = s[3];
+		unsigned s4 = s[4], s5 = s[5], s6 = s[6], s7 = s[7];
+
+		d[0] = PAIR(s0, s1);
+		d[1] = PAIR(s2, s3);
+		d[2] = PAIR(s4, s5);
+		d[3] = PAIR(s6, s7);
+		d += 4;
+		s += 8;
+	}
+}
+
+void DGP_Convert565(uint16_t *pic, int stride_px, const uint8_t *src,
+                    const uint16_t *pal, const dgp_geom_t *g,
+                    const uint8_t *convert_rows)
+{
+	const uint16_t *xoff = g->xoff;
+	int w = g->picw, h = g->pich;
+	int next = 0;
+	int y;
+
+	for (y = 0; y < h; y++)
+	{
+		uint16_t *row = pic + (size_t)y * stride_px;
+		const uint8_t *s;
+		int kernel = g->kernel;
+		int i = 0;
+
+		if (convert_rows && !convert_rows[y])
+		{
+			continue;
+		}
+
+		if (y > 0 && g->yrow[y] == g->yrow[y - 1])
+		{
+			memcpy(row, row - stride_px, w * 2);
+			continue;
+		}
+
+		s = src + g->ymap[y];
+
+		// The next row that is converted from a different source row. Its
+		// ten cache lines are fetched while this one is converted.
+		if (next <= y)
+		{
+			next = y + 1;
+		}
+		while (next < h && (g->yrow[next] == g->yrow[y]
+		    || (convert_rows && !convert_rows[next])))
+		{
+			next++;
+		}
+		if (next < h)
+		{
+			const uint8_t *ns = src + g->ymap[next];
+			int k;
+
+			for (k = 0; k < DGP_SRC_W; k += 32)
+			{
+				__builtin_prefetch(ns + k);
+			}
+		}
+
+		// A row that does not start on a word boundary: one halfword, then
+		// the pairs line up. The unrolled kernels need the pattern phase.
+		if ((uintptr_t)row & 2)
+		{
+			row[0] = pal[s[xoff[0]]];
+			i = 1;
+			kernel = DGP_K_GENERIC;
+		}
+
+		if (kernel == DGP_K_200)
+		{
+			i = w / 10;
+			kernel200((dgp_u32 *)row, s, pal, i);
+			i *= 10;
+		}
+		else if (kernel == DGP_K_240)
+		{
+			i = w / 6;
+			kernel240((dgp_u32 *)row, s, pal, i);
+			i *= 6;
+		}
+		else if (kernel == DGP_K_320)
+		{
+			i = w / 8;
+			kernel320((dgp_u32 *)row, s, pal, i);
+			i *= 8;
+		}
+
+		for (; i + 8 <= w; i += 8)
+		{
+			unsigned a0 = s[xoff[i]], a1 = s[xoff[i + 1]];
+			unsigned a2 = s[xoff[i + 2]], a3 = s[xoff[i + 3]];
+			unsigned a4 = s[xoff[i + 4]], a5 = s[xoff[i + 5]];
+			unsigned a6 = s[xoff[i + 6]], a7 = s[xoff[i + 7]];
+			dgp_u32 *d = (dgp_u32 *)(row + i);
+
+			d[0] = PAIR(a0, a1);
+			d[1] = PAIR(a2, a3);
+			d[2] = PAIR(a4, a5);
+			d[3] = PAIR(a6, a7);
+		}
+		for (; i + 2 <= w; i += 2)
+		{
+			unsigned a0 = s[xoff[i]], a1 = s[xoff[i + 1]];
+
+			*(dgp_u32 *)(row + i) = PAIR(a0, a1);
+		}
+		if (i < w)
+		{
+			row[i] = pal[s[xoff[i]]];
+		}
+	}
+}
 
 #define PASS_WORDS 8
 
@@ -505,7 +750,16 @@ void DGP_Convert(dgp_t *c, void *data, const uint8_t *src,
                  const uint16_t *pal565, const uint32_t *pal8888,
                  const dgp_plan_t *p)
 {
-	DGP_ConvertOld(data, &c->g, src, pal565, pal8888, p->convert);
+	if (c->mode == DGP_MODE_NEW && c->g.bpp == 2)
+	{
+		DGP_Convert565((uint16_t *)data + (size_t)c->g.picy * c->g.width
+		               + c->g.picx, c->g.width, src, pal565, &c->g,
+		               p->convert);
+	}
+	else
+	{
+		DGP_ConvertOld(data, &c->g, src, pal565, pal8888, p->convert);
+	}
 }
 
 void DGP_StatsString(const dgp_t *c, char *buf, int size)

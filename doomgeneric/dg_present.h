@@ -54,7 +54,20 @@ typedef struct
 	int *xmap;			// source column for each output column
 	int *ymap;			// source row * DGP_SRC_W for each output row
 	uint16_t *yrow;			// source row for each output row
+	uint16_t *xoff;			// source column for each output column
+	// The smallest period p <= 8 with xoff[i + p] = xoff[i] + q, if any.
+	int pat_p, pat_q;
+	uint8_t pat_o[8];
+	int kernel;			// DGP_K_*, the unrolled kernel that fits
 } dgp_geom_t;
+
+enum
+{
+	DGP_K_GENERIC,
+	DGP_K_200,	// width 200: 5 outputs per 8 source columns
+	DGP_K_240,	// width 240: 3 outputs per 4 source columns
+	DGP_K_320	// width 320: one to one
+};
 
 // Sets the geometry and builds the scaling tables: each output pixel
 // samples the source at its centre.  Returns -1 when out of memory.
@@ -116,6 +129,14 @@ typedef struct
 	int *runlo, *runhi, *hist;	// scratch for DGP_PlanRects
 	dgp_stats_t st;
 } dgp_t;
+
+// The RGB565 converter.  pic is the first pixel of the picture inside the
+// buffer, stride_px the buffer row length in pixels.  It gives the same
+// pixels as DGP_ConvertOld.
+void DGP_Convert565(uint16_t *pic, int stride_px, const uint8_t *src,
+                    const uint16_t *pal, const dgp_geom_t *g,
+                    const uint8_t *convert_rows);
+const char *DGP_KernelName(const dgp_geom_t *g);
 
 // The tracker.  Rows outside [band_lo, band_hi) always count as changed.
 int DGP_TrackerInit(dgp_tracker_t *t, int damage);
