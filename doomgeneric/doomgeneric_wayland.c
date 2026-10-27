@@ -34,6 +34,7 @@
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
+#include "dg_present.h"
 #include "doomdef.h"
 #include "doomgeneric.h"
 #include "doomkeys.h"
@@ -94,8 +95,7 @@ static struct buffer s_Buffers[NUM_BUFFERS];
 static int s_Width;
 static int s_Height;
 static int s_PicX, s_PicY, s_PicWidth, s_PicHeight;
-static int *s_XMap;
-static int *s_YMap;
+static dgp_geom_t s_Geom;
 
 static int s_NewWidth, s_NewHeight;
 static int s_BoundsWidth, s_BoundsHeight;
@@ -877,21 +877,10 @@ static void applyResize(void)
 	s_PicX = (s_Width - s_PicWidth) / 2;
 	s_PicY = (s_Height - s_PicHeight) / 2;
 
-	s_XMap = realloc(s_XMap, s_PicWidth * sizeof(*s_XMap));
-	s_YMap = realloc(s_YMap, s_PicHeight * sizeof(*s_YMap));
-	if (!s_XMap || !s_YMap)
+	if (DGP_GeomSet(&s_Geom, s_Width, s_Height, s_PicX, s_PicY, s_PicWidth,
+	                s_PicHeight, s_Bpp) < 0)
 	{
 		I_Error("Out of memory for the scaling tables");
-	}
-
-	// Sample the source at the centre of each output pixel.
-	for (i = 0; i < s_PicWidth; i++)
-	{
-		s_XMap[i] = ((2 * i + 1) * SCREENWIDTH) / (2 * s_PicWidth);
-	}
-	for (i = 0; i < s_PicHeight; i++)
-	{
-		s_YMap[i] = ((2 * i + 1) * SCREENHEIGHT) / (2 * s_PicHeight) * SCREENWIDTH;
 	}
 
 	for (i = 0; i < NUM_BUFFERS; i++)
@@ -903,43 +892,6 @@ static void applyResize(void)
 		else
 		{
 			s_Buffers[i].stale = 1;
-		}
-	}
-}
-
-static void convertFrame(struct buffer *buffer)
-{
-	const pixel_t *src = DG_ScreenBuffer;
-	int stride = s_Width * s_Bpp;
-	int x, y;
-
-	for (y = 0; y < s_PicHeight; y++)
-	{
-		char *row = (char *)buffer->data + (size_t)(s_PicY + y) * stride
-		            + s_PicX * s_Bpp;
-		const pixel_t *line = src + s_YMap[y];
-
-		if (y > 0 && s_YMap[y] == s_YMap[y - 1])
-		{
-			memcpy(row, row - stride, s_PicWidth * s_Bpp);
-		}
-		else if (s_Format == WL_SHM_FORMAT_RGB565)
-		{
-			uint16_t *dst = (uint16_t *)row;
-
-			for (x = 0; x < s_PicWidth; x++)
-			{
-				dst[x] = s_Pal565[line[s_XMap[x]]];
-			}
-		}
-		else
-		{
-			uint32_t *dst = (uint32_t *)row;
-
-			for (x = 0; x < s_PicWidth; x++)
-			{
-				dst[x] = s_Pal8888[line[s_XMap[x]]];
-			}
 		}
 	}
 }
@@ -1081,7 +1033,8 @@ void DG_DrawFrame()
 		updatePalette();
 	}
 
-	convertFrame(buffer);
+	DGP_ConvertOld(buffer->data, &s_Geom, DG_ScreenBuffer, s_Pal565, s_Pal8888,
+	               NULL);
 
 	wl_surface_attach(s_Surface, buffer->wl_buffer, 0, 0);
 	if (buffer->drawnFull)
