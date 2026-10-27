@@ -24,9 +24,12 @@ MUSSRC = musplay_test.c ../i_musindex.c ../i_musdec_flac.c ../i_musplay.c \
          ../i_sndmix.c ../i_musindex.h ../i_musdec.h ../i_musplay.h \
          ../i_sndmix.h ../dr_flac.h
 
-all: sndmix_test tick_test musplay_test modtest $(WORK)/music.flac $(WORK)/music.raw
+all: sndmix_test tick_test audiomod_test audiomod_old musplay_test modtest $(WORK)/music.flac $(WORK)/music.raw
 	./sndmix_test render.wav $(WAD)
 	./tick_test
+	./audiomod_test | tee audiomod.out
+	./audiomod_old | tee audiomod_old.out
+	grep RESULT audiomod.out > audiomod.res; grep RESULT audiomod_old.out | diff - audiomod.res
 	./musplay_test $(WORK)/music.flac $(WORK)/music.raw $(WAD)
 	./modtest $(WORK)/mod $(WORK)/lump.bin $(WORK)/music.raw
 
@@ -58,12 +61,40 @@ tick_test: tick_test.c ../i_alsatick.c ../i_alsatick.h
 tick_test_armel: tick_test.c ../i_alsatick.c ../i_alsatick.h
 	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) -o $@ tick_test.c
 
+# The sound module on a fake PCM device. audiomod_old is the same test with
+# the module as it was before the perf-audio work (git history, $(OLDREV)).
+
+OLDREV ?= a1ceef6
+AMODFLAGS = -DFEATURE_SOUND -DNORMALUNIX -DLINUX -D_GNU_SOURCE -pthread
+AMODSRC = audiomod_test.c ../i_alsasound.c ../i_alsatick.c ../i_sndmix.c \
+          ../i_alsatick.h ../i_alsapcm.h ../i_sndmix.h ../i_alsamusic.h
+
+$(WORK)/i_alsasound_old.c:
+	mkdir -p $(WORK)
+	git show $(OLDREV):doomgeneric/i_alsasound.c > $@
+
+audiomod_test: $(AMODSRC)
+	$(CC) $(CFLAGS) $(INC) $(AMODFLAGS) -o $@ audiomod_test.c ../i_alsasound.c ../i_alsatick.c ../i_sndmix.c
+
+audiomod_old: audiomod_test.c $(WORK)/i_alsasound_old.c ../i_sndmix.c
+	$(CC) $(CFLAGS) $(INC) $(AMODFLAGS) -DOLDMODULE -o $@ audiomod_test.c $(WORK)/i_alsasound_old.c ../i_sndmix.c
+
+audiomod_test_armel: $(AMODSRC)
+	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) $(AMODFLAGS) -o $@ audiomod_test.c ../i_alsasound.c ../i_alsatick.c ../i_sndmix.c
+
+audiomod_old_armel: audiomod_test.c $(WORK)/i_alsasound_old.c ../i_sndmix.c
+	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) $(AMODFLAGS) -DOLDMODULE -o $@ audiomod_test.c $(WORK)/i_alsasound_old.c ../i_sndmix.c
+
 musplay_test: $(MUSSRC)
 	$(CC) $(CFLAGS) $(INC) -o $@ musplay_test.c
 
-armel: sndmix_test_armel tick_test_armel musplay_test_armel modtest_armel $(WORK)/music.flac $(WORK)/music.raw
+armel: sndmix_test_armel tick_test_armel audiomod_test_armel audiomod_old_armel musplay_test_armel modtest_armel $(WORK)/music.flac $(WORK)/music.raw
 	qemu-arm-static ./sndmix_test_armel render-armel.wav $(WAD)
 	qemu-arm-static ./tick_test_armel
+	qemu-arm-static ./audiomod_test_armel | tee audiomod-armel.out
+	qemu-arm-static ./audiomod_old_armel | tee audiomod_old-armel.out
+	grep RESULT audiomod-armel.out > audiomod-armel.res; grep RESULT audiomod_old-armel.out | diff - audiomod-armel.res
+	diff audiomod.res audiomod-armel.res
 	qemu-arm-static ./musplay_test_armel $(WORK)/music.flac $(WORK)/music.raw $(WAD)
 	qemu-arm-static ./modtest_armel $(WORK)/mod $(WORK)/lump.bin $(WORK)/music.raw
 
@@ -74,7 +105,7 @@ musplay_test_armel: $(MUSSRC)
 	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) -o $@ musplay_test.c
 
 clean:
-	rm -rf sndmix_test sndmix_test_armel tick_test tick_test_armel musplay_test musplay_test_armel modtest modtest_armel \
+	rm -rf sndmix_test sndmix_test_armel tick_test tick_test_armel audiomod_test audiomod_test_armel audiomod_old audiomod_old_armel audiomod*.out audiomod*.res musplay_test musplay_test_armel modtest modtest_armel \
 	       render.wav render-armel.wav $(WORK)
 
 .PHONY: all armel clean
