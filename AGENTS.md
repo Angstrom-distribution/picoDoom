@@ -43,9 +43,11 @@ This repository is public. Never commit, package or publish a WAD, or anything r
 make -C doomgeneric -f Makefile.wayland
 make -C doomgeneric/test
 make -C doomgeneric/test armel
+make -C doomgeneric/test present
+make -C doomgeneric/test present-armel
 ```
 
-- The tests need `freedoom1.wad` and, for `armel`, `qemu-arm` and an ARM cross compiler. A test that exits with 77 is a skip: report it as one, and say whether a result came from the host, qemu-user or a device.
+- The tests need `freedoom1.wad` and, for `armel`, `qemu-arm-static` and an ARM cross compiler. Say whether a result came from the host, qemu-user or a device.
 - A change to the mixer or the converter keeps the bit-exact tests passing; a change that moves pixels or samples says why in the commit.
 - Performance changes are judged on a device, not on a microbenchmark or under emulation: interleaved A/B runs of the timedemo on a quiesced board, headless and under the compositor, windowed and fullscreen in both orientations, with sound on.
 - Documentation in `docs/` is updated in the same change as the behaviour it describes, and states current facts.
