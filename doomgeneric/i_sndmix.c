@@ -52,6 +52,21 @@ void SNDMIX_SetGains(sndvoice_t *voice, int vol, int sep)
     voice->right = right;
 }
 
+int SNDMIX_IsIdle(const sndvoice_t *voices, int num_voices)
+{
+    int v;
+
+    for (v = 0; v < num_voices; ++v)
+    {
+        if (voices[v].pos != NULL)
+        {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 // Mix all voices into acc (interleaved L, R), voice by voice so that the
 // accumulator stays in the data cache. The mixer adds to acc, which must be
 // all zero on entry: the caller zeroes it once and SNDMIX_Output clears

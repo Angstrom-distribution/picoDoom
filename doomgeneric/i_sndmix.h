@@ -46,6 +46,11 @@ void SNDMIX_SetGains(sndvoice_t *voice, int vol, int sep);
 // must be all zero before the first call (the caller zeroes it once);
 // SNDMIX_Output clears each accumulator entry after reading it.
 
+// True if no voice is playing, so a mix would add nothing to the
+// accumulator. Cheap enough for the audio thread to ask every period.
+
+int SNDMIX_IsIdle(const sndvoice_t *voices, int num_voices);
+
 void SNDMIX_Mix(sndvoice_t *voices, int num_voices, int32_t *acc, int frames);
 void SNDMIX_Output(int32_t *acc, int16_t *out, int frames);
 
