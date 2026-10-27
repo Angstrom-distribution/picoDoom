@@ -33,6 +33,9 @@
 //  because it will get overwritten automatically if needed.
 // 
  
+// the texture column cache in r_data.c watches purgable blocks
+void R_ColumnCacheZoneEvent(void **user);
+
 #define MEM_ALIGN sizeof(void *)
 #define ZONEID	0x1d4a11
 
@@ -133,6 +136,9 @@ void Z_Free (void* ptr)
     if (block->id != ZONEID)
 	I_Error ("Z_Free: freed a pointer without ZONEID");
 		
+    if (block->tag >= PU_PURGELEVEL)
+	R_ColumnCacheZoneEvent(block->user);
+
     if (block->tag != PU_FREE && block->user != NULL)
     {
     	// clear the user's mark
@@ -439,6 +445,9 @@ void Z_ChangeTag2(void *ptr, int tag, char *file, int line)
     if (tag >= PU_PURGELEVEL && block->user == NULL)
         I_Error("%s:%i: Z_ChangeTag: an owner is required "
                 "for purgable blocks", file, line);
+
+    if (block->tag >= PU_PURGELEVEL && tag != block->tag)
+        R_ColumnCacheZoneEvent(block->user);
 
     block->tag = tag;
 }

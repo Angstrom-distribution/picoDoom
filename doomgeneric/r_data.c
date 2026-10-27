@@ -18,6 +18,9 @@
 //
 
 #include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "deh_main.h"
 #include "i_swap.h"
@@ -377,10 +380,96 @@ void R_GenerateLookup (int texnum)
 
 
 //
-// R_GetColumn
+// texture column cache.
+// R_GetColumn is a pure function of (tex, col) and of the zone state:
+//  the address of the patch lump (lump->cache) or of the composite
+//  (texturecomposite[tex]), plus a side effect, Z_ChangeTag(PU_CACHE)
+//  on the patch lump, which is a no-op when the block is already
+//  PU_CACHE.  Every entry is filled right after the original code ran,
+//  so its block is PU_CACHE at that moment.  The entry stays exact as
+//  long as that block is neither freed nor re-tagged.  z_zone.c calls
+//  R_ColumnCacheZoneEvent before it frees a purgable block (purge or
+//  Z_Free) and before it changes the tag of a purgable block.  If the
+//  block belongs to a lump with an entry, or is a composite, the whole
+//  cache is flushed.  A flush is always safe: a miss runs the original
+//  code.  The table is 1024 entries of 8 bytes: two 4 KiB pages.
 //
-byte*
-R_GetColumn
+#ifndef COLCACHE_BITS
+#define COLCACHE_BITS	10
+#endif
+#define COLCACHE_SIZE	(1 << COLCACHE_BITS)
+#define COLCACHE_LUMPS	8192		// lumps above this are not cached
+
+typedef struct
+{
+    unsigned	key;			// ((tex << 16) | col) + 1, 0 = empty
+    byte*	ptr;
+} colcache_t;
+
+static colcache_t colcache[COLCACHE_SIZE] __attribute__((aligned(4096)));
+static unsigned colcache_watch[COLCACHE_LUMPS / 32];	// lumps with entries
+static int colcache_used;
+
+#ifdef COLCACHE_STATS
+static unsigned cc_hits, cc_misses, cc_flushes, cc_events, cc_nocache;
+static void R_ColumnCacheReport(void)
+{
+    fprintf(stderr, "colcache bits %d hits %u misses %u flushes %u events %u uncached %u\n",
+	    COLCACHE_BITS, cc_hits, cc_misses, cc_flushes, cc_events, cc_nocache);
+}
+#endif
+
+static void R_FlushColumnCache(void)
+{
+    if (!colcache_used)
+	return;
+    memset(colcache, 0, sizeof(colcache));
+    memset(colcache_watch, 0, sizeof(colcache_watch));
+    colcache_used = 0;
+#ifdef COLCACHE_STATS
+    cc_flushes++;
+#endif
+}
+
+// Called by z_zone.c with the owner pointer of a purgable block that is
+// about to be freed or re-tagged.
+void R_ColumnCacheZoneEvent(void **user)
+{
+    uintptr_t	u = (uintptr_t)user;
+    uintptr_t	base;
+    unsigned	n;
+
+    if (!colcache_used || user == NULL)
+	return;
+#ifdef COLCACHE_STATS
+    cc_events++;
+#endif
+    // a composite texture block (owner &texturecomposite[tex])
+    if (texturecomposite != NULL
+     && u >= (uintptr_t)texturecomposite
+     && u < (uintptr_t)(texturecomposite + numtextures))
+    {
+	R_FlushColumnCache();
+	return;
+    }
+    // a lump block (owner &lumpinfo[n].cache)
+    base = (uintptr_t)&lumpinfo[0].cache;
+    if (lumpinfo != NULL && u >= base
+     && u < base + (uintptr_t)numlumps * sizeof(lumpinfo_t)
+     && (u - base) % sizeof(lumpinfo_t) == 0)
+    {
+	n = (u - base) / sizeof(lumpinfo_t);
+	if (n < COLCACHE_LUMPS && (colcache_watch[n >> 5] & (1u << (n & 31))))
+	    R_FlushColumnCache();
+    }
+}
+
+//
+// R_GetColumn
+// The original function, unchanged; only called on a cache miss.
+//
+static byte*
+R_GetColumnUncached
 ( int		tex,
   int		col )
 {
@@ -398,6 +487,71 @@ R_GetColumn
 	R_GenerateComposite (tex);
 
     return texturecomposite[tex] + ofs;
+}
+
+// Miss: run the original code, then fill the entry.  Out of line, so the
+// hit path in R_GetColumn needs no stack frame (a tail call on a miss).
+static byte* __attribute__((noinline))
+R_GetColumnMiss
+( int		tex,
+  int		col,
+  colcache_t*	e,
+  unsigned	key )
+{
+    byte*	ptr;
+    int		lump;
+
+#ifdef COLCACHE_STATS
+    cc_misses++;
+#endif
+    ptr = R_GetColumnUncached(tex, col);
+    lump = texturecolumnlump[tex][col];
+    if (lump > 0)
+    {
+	if (lump >= COLCACHE_LUMPS)
+	{
+#ifdef COLCACHE_STATS
+	    cc_nocache++;
+#endif
+	    return ptr;
+	}
+	colcache_watch[lump >> 5] |= 1u << (lump & 31);
+    }
+#ifdef COLCACHE_STATS
+    {
+	static int registered;
+	if (!registered)
+	{
+	    registered = 1;
+	    atexit(R_ColumnCacheReport);
+	}
+    }
+#endif
+    colcache_used = 1;
+    e->key = key;
+    e->ptr = ptr;
+    return ptr;
+}
+
+byte*
+R_GetColumn
+( int		tex,
+  int		col )
+{
+    unsigned	key;
+    colcache_t*	e;
+
+    col &= texturewidthmask[tex];
+    key = (((unsigned)tex << 16) | (unsigned)col) + 1;
+    e = &colcache[(col + tex * 67) & (COLCACHE_SIZE - 1)];
+    if (e->key == key)
+    {
+#ifdef COLCACHE_STATS
+	cc_hits++;
+#endif
+	return e->ptr;
+    }
+    return R_GetColumnMiss(tex, col, e, key);
 }
 
 
@@ -811,6 +965,10 @@ void R_PrecacheLevel (void)
     texture_t*		texture;
     thinker_t*		th;
     spriteframe_t*	sf;
+
+    // a new level starts with an empty column cache (not needed
+    //  for correctness, the zone events cover it; it keeps the table clean)
+    R_FlushColumnCache();
 
     if (demoplayback)
 	return;
