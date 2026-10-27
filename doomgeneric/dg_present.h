@@ -136,6 +136,12 @@ typedef struct
 void DGP_Convert565(uint16_t *pic, int stride_px, const uint8_t *src,
                     const uint16_t *pal, const dgp_geom_t *g,
                     const uint8_t *convert_rows);
+// The same with a word palette, pal[i] = the halfword entry, zero extended.
+// ARMv5 can scale a word index but not a halfword index, so this saves one
+// instruction per pixel; the board benchmark says whether it pays.
+void DGP_Convert565P32(uint16_t *pic, int stride_px, const uint8_t *src,
+                       const uint32_t *pal, const dgp_geom_t *g,
+                       const uint8_t *convert_rows);
 const char *DGP_KernelName(const dgp_geom_t *g);
 
 // The tracker.  Rows outside [band_lo, band_hi) always count as changed.
