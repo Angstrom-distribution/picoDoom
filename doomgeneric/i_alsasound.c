@@ -92,11 +92,14 @@ static int16_t *music_out;              // period frames, mono
 
 static unsigned int opt_period;
 static unsigned int opt_periods;
+static boolean opt_idle;
+static int16_t *silent_block;           // 2 * period frames, all zero
 
 // Counters for the shutdown line. The audio thread owns them while it runs;
 // the main thread reads them after pthread_join.
 
 static unsigned int stat_writes;
+static unsigned int stat_idle;
 static unsigned long long stat_frames;
 static long thr_utime_us, thr_stime_us, thr_nvcsw, thr_nivcsw;
 
@@ -361,7 +364,8 @@ static void I_ALSA_PrecacheSounds(sfxinfo_t *sounds, int num_sounds)
 
 static void *MixThread(void *arg)
 {
-    int err, gain;
+    int err, gain, idle;
+    const int16_t *block;
 
     for (;;)
     {
@@ -378,17 +382,35 @@ static void *MixThread(void *arg)
             break;
         }
 
-        SNDMIX_Mix(voices, NUM_VOICES, mix_acc, pcm.period_frames);
-        pthread_mutex_unlock(&voice_lock);
+        // With -audio-idle a period with no voice and no music is not mixed:
+        // the accumulator is already zero, so the output would be zeros.
 
-        if (gain > 0)
+        idle = opt_idle && gain <= 0 && SNDMIX_IsIdle(voices, NUM_VOICES);
+
+        if (!idle)
         {
-            SNDMIX_MixMono(music_out, gain, mix_acc, pcm.period_frames);
+            SNDMIX_Mix(voices, NUM_VOICES, mix_acc, pcm.period_frames);
         }
 
-        SNDMIX_Output(mix_acc, mix_out, pcm.period_frames);
+        pthread_mutex_unlock(&voice_lock);
 
-        err = PCM_Write(&pcm, mix_out, pcm.period_frames);
+        if (idle)
+        {
+            block = silent_block;
+            ++stat_idle;
+        }
+        else
+        {
+            if (gain > 0)
+            {
+                SNDMIX_MixMono(music_out, gain, mix_acc, pcm.period_frames);
+            }
+
+            SNDMIX_Output(mix_acc, mix_out, pcm.period_frames);
+            block = mix_out;
+        }
+
+        err = PCM_Write(&pcm, block, pcm.period_frames);
 
         if (err < 0)
         {
@@ -585,6 +607,13 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
     opt_periods = ParseAudioArg("-audio-periods", AUDIO_PERIODS_MIN,
                                 AUDIO_PERIODS_MAX);
 
+    //!
+    // Do not mix a period when no sound effect and no music is playing;
+    // write a block of zeros instead. The output does not change.
+    //
+
+    opt_idle = M_CheckParm("-audio-idle") > 0;
+
     err = OpenPCM(card, device, forced_rate);
 
     if (err < 0)
@@ -600,8 +629,10 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
     mix_acc = calloc(2 * pcm.period_frames, sizeof(int32_t));
     mix_out = malloc(2 * pcm.period_frames * sizeof(int16_t));
     music_out = calloc(pcm.period_frames, sizeof(int16_t));
+    silent_block = calloc(2 * pcm.period_frames, sizeof(int16_t));
 
-    if (mix_acc == NULL || mix_out == NULL || music_out == NULL)
+    if (mix_acc == NULL || mix_out == NULL || music_out == NULL
+     || silent_block == NULL)
     {
         printf("I_ALSA_InitSound: out of memory\n");
         goto fail;
@@ -638,8 +669,9 @@ static boolean I_ALSA_InitSound(boolean _use_sfx_prefix)
 
     sound_initialized = true;
 
-    printf("I_ALSA_InitSound: hw:%d,%d %u Hz, %u frames x %u periods, mode=thread\n",
-           card, device, pcm.rate, pcm.period_frames, pcm.periods);
+    printf("I_ALSA_InitSound: hw:%d,%d %u Hz, %u frames x %u periods, mode=thread%s\n",
+           card, device, pcm.rate, pcm.period_frames, pcm.periods,
+           opt_idle ? ", idle" : "");
 
     return true;
 
@@ -647,6 +679,8 @@ fail:
     free(mix_acc);
     free(mix_out);
     free(music_out);
+    free(silent_block);
+    silent_block = NULL;
     mix_acc = NULL;
     mix_out = NULL;
     music_out = NULL;
@@ -677,11 +711,11 @@ static void I_ALSA_ShutdownSound(void)
 
     printf("I_ALSA_ShutdownSound: %u xruns\n", pcm.xruns);
     printf("I_ALSA_Stats: mode=thread rate=%u period=%u periods=%u writes=%u "
-           "frames=%llu idle=0 xruns=%u underruns=0 short_writes=0 "
+           "frames=%llu idle=%u xruns=%u underruns=0 short_writes=0 "
            "min_delay=-1 thr_utime_us=%ld thr_stime_us=%ld thr_nvcsw=%ld "
            "thr_nivcsw=%ld\n",
            pcm.rate, pcm.period_frames, pcm.periods, stat_writes, stat_frames,
-           pcm.xruns, thr_utime_us, thr_stime_us, thr_nvcsw, thr_nivcsw);
+           stat_idle, pcm.xruns, thr_utime_us, thr_stime_us, thr_nvcsw, thr_nivcsw);
 
     if (mix_error != 0 && mix_error != EBADFD)
     {
