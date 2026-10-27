@@ -94,6 +94,7 @@ static struct buffer s_Buffers[NUM_BUFFERS];
 
 // The size of the buffers, and of the picture inside them.
 static int s_Width;
+static int s_Stride;		// bytes per buffer row, a multiple of four
 static int s_Height;
 static int s_PicX, s_PicY, s_PicWidth, s_PicHeight;
 static dgp_t s_Present;
@@ -662,7 +663,7 @@ static void pump(int timeoutMs)
 static void createBuffer(struct buffer *buffer)
 {
 	struct wl_shm_pool *pool;
-	int stride = s_Width * s_Bpp;
+	int stride = s_Stride;
 	int fd;
 
 	buffer->size = (size_t)stride * s_Height;
@@ -929,6 +930,7 @@ static void applyResize(void)
 	int i;
 
 	s_Width = s_NewWidth;
+	s_Stride = DGP_Stride(s_Width, s_Bpp);
 	s_Height = s_NewHeight;
 	s_Resize = 0;
 
