@@ -105,6 +105,23 @@ void SNDMIX_Mix(sndvoice_t *voices, int num_voices, int32_t *acc, int frames)
     }
 }
 
+// Add a mono source to both channels. |src * gain| is at most
+// 32768 * 127, which fits in an int32, and the arithmetic shift is a floor.
+
+void SNDMIX_MixMono(const int16_t *src, int gain, int32_t *acc, int frames)
+{
+    int32_t *a = acc;
+    int i, v;
+
+    for (i = 0; i < frames; ++i)
+    {
+        v = (src[i] * gain) >> SNDMIX_MUSIC_SHIFT;
+        a[0] += v;
+        a[1] += v;
+        a += 2;
+    }
+}
+
 // Scale and clamp the accumulator to signed 16 bit, interleaved, and clear
 // the accumulator for the next SNDMIX_Mix.
 
