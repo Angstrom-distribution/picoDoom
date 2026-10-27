@@ -37,7 +37,7 @@ The present options add 11.2 % (portrait) and 12.9 % (landscape) to tick mode. T
 
 ### Windowed, the current build
 
-Each value is the mean of two interleaved runs in opposite orders, after one warm-up run, in the 240x150 tile with `-timedemo demo1` and an idle gate of 96 % or more before each run [meas]. V0 is the build with the column cache, sound effects and the music code, without a music pack. The other variants are `wl-perf-all` with the options listed; V0 is `wl-music`. The deltas are against V0.
+Each value is the mean of two interleaved runs in opposite orders, after one warm-up run, in the 240x150 tile with `-timedemo demo1` and an idle gate of 90 % (the board measured 94.5 to 97.9 % idle before each run) [meas]. V0 is the build with the column cache, sound effects and the music code, without a music pack. The other variants are `wl-perf-all` with the options listed; V0 is `wl-music`. The deltas are against V0.
 
 | variant | options | run 1 | run 2 | mean | against V0 |
 |---|---|---|---|---|---|
