@@ -3,13 +3,16 @@
   HP iPAQ h2200, front view. Glass: <rect id="screen"> x=137.5 y=168 width=525 height=700 (3:4).
 
   SPDX-FileCopyrightText: 2026 Koen Kooi
-  SPDX-License-Identifier: CC-BY-SA-4.0
+  SPDX-FileCopyrightText: Contributors to the Freedoom project
+  SPDX-License-Identifier: CC-BY-SA-4.0 AND BSD-3-Clause
 
-  Provenance: an original vector drawing, written as SVG geometry and
-  gradients and drawn with the assistance of Claude (Opus 5.5) from
-  photographs of the author's own iPAQ h2200. No third-party artwork was
-  traced or embedded. "HP", "iPAQ" and "Pocket PC" are trademarks of their
-  owners and appear only to identify the device.
+  Provenance: the device frame is an original vector drawing, written as SVG
+  geometry and gradients and drawn with the assistance of Claude (Opus 5.5)
+  from photographs of the author's own iPAQ h2200 (CC-BY-SA-4.0). The picture
+  on the glass is an embedded raster render of the Freedoom game
+  (BSD-3-Clause, copyright the Freedoom contributors). "HP", "iPAQ" and
+  "Pocket PC" are trademarks of their owners and appear only to identify the
+  device.
 -->
 <defs>
   <linearGradient id="ip-face-h" x1="0" y1="0" x2="1" y2="0">
