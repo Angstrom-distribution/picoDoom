@@ -1,83 +1,40 @@
-# doomgeneric
-The purpose of doomgeneric is to make porting Doom easier.
-Of course Doom is already portable but with doomgeneric it is possible with just a few functions.
+# PicoDoom
 
-To try it you will need a WAD file (game data). If you don't own the game, shareware version is freely available (doom1.wad).
+PicoDoom is Doom for small handhelds: about 64 MiB of RAM, a QVGA-class panel (240x320) and no GPU. It is a fork of [doomgeneric](https://github.com/ozkl/doomgeneric), kept close to upstream, with a Wayland back end for the picowl compositor, sound effects and music through ALSA, and changes that make the renderer and the present step cheaper on an ARMv5 core without an FPU. HP iPAQs are the example and test devices.
 
-# porting
-Create a file named doomgeneric_yourplatform.c and just implement these functions to suit your platform.
-* DG_Init
-* DG_DrawFrame
-* DG_SleepMs
-* DG_GetTicksMs
-* DG_GetKey
+The game itself is the doomgeneric port of the Chocolate Doom code base. A WAD is needed: the shareware `doom1.wad`, or [Freedoom](https://freedoom.github.io/), which is what the tests use.
 
-|Functions            |Description|
-|---------------------|-----------|
-|DG_Init              |Initialize your platfrom (create window, framebuffer, etc...).
-|DG_DrawFrame         |Frame is ready in DG_ScreenBuffer. Copy it to your platform's screen.
-|DG_SleepMs           |Sleep in milliseconds.
-|DG_GetTicksMs        |The ticks passed since launch in milliseconds.
-|DG_GetKey            |Provide keyboard events.
-|DG_SetWindowTitle    |Not required. This is for setting the window title as Doom sets this from WAD file.
+## Features
 
-### main loop
-At start, call doomgeneric_Create().
+- Wayland: a window in `wl_shm` buffers that follows the size the compositor configures, fullscreen, application id and title, key map from the command line, the screen kept on while the window is shown. The converter from the 320x200 indexed frame to RGB565 is unrolled for the picture widths that occur and can damage only the rows that changed.
+- Sound effects: an integer mixer for 16 voices and a minimal ALSA layer that talks to the kernel with ioctls, so it links statically on ARMv5 without libasound. One audio thread mixes with blocking writes, or the game thread fills the device queue itself with `-audio-mode tick` and there is no audio thread at all.
+- Music: pre-rendered tracks, one FLAC file per song, mono at 22050 Hz, decoded into a ring that the audio thread, or the game thread in tick mode, mixes. A song is found by a hash of its music lump in the `index.txt` of the music directory; a song without a file is silent. A pack is rendered from a WAD on another machine; the tool for it is a plan and not in this repository ([docs/audio.md](docs/audio.md)).
+- Speed: a cache of the result of `R_GetColumn` per texture column, which cuts data TLB walks by 47 %, and the draw loops keep their sources in locals. On an h2200 both raise the headless timedemo from 56.4 to 67.8 frames per second.
 
-In a loop, call doomgeneric_Tick().
+The command line options are in [docs/options.md](docs/options.md), building in [docs/building.md](docs/building.md) and the measurements in [docs/performance.md](docs/performance.md). The upstream notes about porting are in [docs/doomgeneric.md](docs/doomgeneric.md).
 
-In simplest form:
-```
-int main(int argc, char **argv)
-{
-    doomgeneric_Create(argc, argv);
+<p>
+<img src="docs/img/h2200-container-doom-tiled.svg" width="240" alt="Doom in the top tile of an iPAQ h2200 with a terminal under it.">
+<img src="docs/img/h2200-container-doom-game.svg" width="240" alt="Doom running alone on an iPAQ h2200, with the 4:3 picture centred.">
+<img src="docs/img/h2200-container-doom-title.svg" width="240" alt="The Freedoom title screen on an iPAQ h2200.">
+</p>
 
-    while (1)
-    {
-        doomgeneric_Tick();
-    }
-    
-    return 0;
-}
-```
+<!-- The pictures on the glass are renders from a headless picowl in a container, not device captures. The iPAQ drawing is CC-BY-SA-4.0, see LICENSES/CC-BY-SA-4.0.txt. -->
 
-# sound
-Sound is much harder to implement! If you need sound, take a look at SDL port. It fully supports sound and music! Where to start? Define FEATURE_SOUND, assign DG_sound_module and DG_music_module.
+## Status
 
-# platforms
-Ported platforms include Windows, X11, Wayland, SDL, emscripten. Just look at (doomgeneric_win.c, doomgeneric_xlib.c, doomgeneric_wayland.c, doomgeneric_sdl.c).
-Makefiles provided for each platform.
+There is no release yet. The table says what works and where it was verified.
 
-## emscripten
-You can try it directly here:
-https://ozkl.github.io/doomgeneric/
+| area | state | verified where |
+|---|---|---|
+| Wayland back end: window, fullscreen, key map, keeping the screen on, resize | working | h2200 under picowl, and a container with a headless picowl |
+| Present options (`-present-direct`, `-presentmode new`, `-damage rows`) | working, off by default | host tests: the new converter equals the old one on 7,156 demo frames in 18 geometries, and a model of the compositor finds no stale pixels in 200,383 commits; on the h2200 in fullscreen with `-audio-mode tick`, 28.2 frames per second against 25.3 without them in portrait and 22.7 against 20.1 in landscape |
+| Sound effects, thread mode | working | listened to on the h2200, where it costs 5 to 8 % of the frame rate ([docs/performance.md](docs/performance.md)); host test of the mixer against a 64-bit reference, bit for bit, native and under qemu-arm-static |
+| Sound effects, tick mode | working, off by default | host tests on a fake PCM device including stalls; on the h2200 fullscreen 2.8 % (portrait) and 5.0 % (landscape) faster than thread mode |
+| Music | built, not run on a device (the h2200 benchmarks ran the music code without a pack) | host tests with a Freedoom pack, and a qemu run that is bit-identical to the rendered track |
+| Texture column cache and draw-loop locals | working | h2200 timedemo: 56.4 to 67.8 frames per second headless |
+| h3900 and hx4700 | not measured with these changes | the h3900 ran the engine benchmarks without the Wayland back end |
 
-emscripten port is based on SDL port, so it supports sound and music! For music, timidity backend is used.
+## Licence
 
-## Wayland
-Draws into wl_shm buffers and needs only libwayland-client, wayland-protocols and wayland-scanner. There is no sound.
-```
-cd doomgeneric
-make -f Makefile.wayland
-./doomgeneric -iwad doom1.wad
-```
-
-The window follows the size the compositor gives it. The 320x200 picture is fitted into it with a 4:3 shape; `-aspect W:H` changes the shape and `-stretch` fills the whole window.
-
-`-keymap CODE=NAME[,CODE=NAME...]` binds Linux evdev codes. NAME is `none`, a key such as `escape`, `enter`, `f5` or `x`, or an action (`up`, `down`, `left`, `right`, `strafeleft`, `straferight`, `fire`, `use`, `strafe`, `speed`, `prevweapon`, `nextweapon`, `weapon1` to `weapon8`, `map`, `menu`, `pause`) that follows the engine's binding. For example `-keymap 28=fire,172=menu`.
-
-`-fullscreen` asks for a fullscreen window, `-appid ID` sets the application id (default `doomgeneric`) and `-title TEXT` sets a fixed window title.
-
-`-present-direct` makes the Wayland back end read the engine's frame buffer itself instead of a copy of it. `-presentmode old|new` picks the converter from the indexed frame to the buffer (`new` is an unrolled RGB565 converter; with a 32-bit buffer it falls back to `old`). `-damage full|sbar|rows` picks what is converted and damaged on each commit: `full` converts every row and damages the whole picture, `sbar` compares only the status bar rows against the previous frame, `rows` compares every row the picture samples. `-damage-rects N` (1 to 16, default 4) is the most rectangles one commit damages, and `-damage-noskip` commits even when no row changed. The defaults are the old behaviour. The settings and the damage counters are printed on start and on exit.
-
-## Windows
-![Windows](screenshots/windows.png)
-
-## X11 - Ubuntu
-![Ubuntu](screenshots/ubuntu.png)
-
-## X11 - FreeBSD
-![FreeBSD](screenshots/freebsd.png)
-
-## SDL
-![SDL](screenshots/sdl.png)
+GPL-2.0-or-later, as the Doom source it is based on. The iPAQ drawing in the framed pictures is CC-BY-SA-4.0. See [LICENSES/](LICENSES/).

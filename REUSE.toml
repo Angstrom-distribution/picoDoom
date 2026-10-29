@@ -1,0 +1,49 @@
+version = 1
+
+[[annotations]]
+path = [
+  "README.md",
+  "SECURITY.md",
+  "CONTRIBUTING.md",
+  "AGENTS.md",
+  ".gitignore",
+  "docs/**.md",
+  "docs/**.txt",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Koen Kooi"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = [
+  "docs/img/**",
+]
+SPDX-FileCopyrightText = ["Koen Kooi", "Contributors to the Freedoom project"]
+SPDX-License-Identifier = "CC-BY-SA-4.0 AND BSD-3-Clause"
+
+[[annotations]]
+path = [
+  "LICENSE",
+  "LICENSES/**",
+  "doomgeneric.sln",
+  "README.TXT",
+  "doomgeneric/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "1993-1996 Id Software, Inc.; 2005-2014 Simon Howard; the doomgeneric authors; PicoDoom contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = [
+  "doomgeneric/dr_flac.h",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "David Reid"
+SPDX-License-Identifier = "Unlicense OR MIT-0"
+
+[[annotations]]
+path = [
+  "screenshots/**",
+]
+SPDX-FileCopyrightText = "Id Software, Inc.; the doomgeneric authors"
+SPDX-License-Identifier = "LicenseRef-IdSoftware-artwork"
