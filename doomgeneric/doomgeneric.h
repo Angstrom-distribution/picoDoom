@@ -30,6 +30,10 @@ extern pixel_t* DG_ScreenBuffer;
 // leaves DG_ScreenBuffer alone and only calls DG_DrawFrame.  Set it in DG_Init.
 extern int DG_DirectVideoBuffer;
 
+// The wayland_c8 configuration value, "auto" or "off": whether the Wayland
+// back end may draw paletted (C8) buffers.  Other back ends ignore it.
+extern char *DG_C8Mode;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

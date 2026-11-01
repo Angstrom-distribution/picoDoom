@@ -122,6 +122,13 @@ static default_t	doom_defaults_list[] =
     CONFIG_VARIABLE_INT(mouse_sensitivity),
 
     //!
+    // Whether the Wayland back end draws paletted (C8) buffers when the
+    // compositor shows them natively: "auto" or "off".
+    //
+
+    CONFIG_VARIABLE_STRING(wayland_c8),
+
+    //!
     // Volume of sound effects, range 0-15.
     //
 

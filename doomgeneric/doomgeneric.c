@@ -6,6 +6,7 @@
 
 pixel_t* DG_ScreenBuffer = NULL;
 int DG_DirectVideoBuffer = 0;
+char *DG_C8Mode = "auto";
 
 void M_FindResponseFile(void);
 void D_DoomMain (void);
