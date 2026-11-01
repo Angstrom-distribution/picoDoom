@@ -18,7 +18,9 @@
 
 #include "doomfeatures.h"
 #include "d_iwad.h"
+#include "d_wadinfo.h"
 #include "m_argv.h"
+#include "m_misc.h"
 #include "w_main.h"
 #include "w_merge.h"
 #include "w_wad.h"
@@ -187,6 +189,11 @@ boolean W_ParseCommandLine(void)
             filename = D_TryFindWADByName(myargv[p]);
 
             printf(" adding %s\n", filename);
+            if (M_StringEndsWith(filename, ".wad") ||
+                M_StringEndsWith(filename, ".WAD"))
+            {
+                D_RequireUsablePWAD(filename);
+            }
 	    W_AddFile(filename);
         }
     }
