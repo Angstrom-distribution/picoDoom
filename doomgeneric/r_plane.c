@@ -42,14 +42,17 @@ planefunction_t		ceilingfunc;
 //
 
 // Here comes the obnoxious "visplane".
-#define MAXVISPLANES	128
+// Raised from the vanilla 128 and 64 screens of openings: the add-on episodes
+// SIGIL and SIGIL II have views that overflow the vanilla limits. The arrays
+// are zero-initialized, so pages that a level does not use are never touched.
+#define MAXVISPLANES	256
 visplane_t		visplanes[MAXVISPLANES];
 visplane_t*		lastvisplane;
 visplane_t*		floorplane;
 visplane_t*		ceilingplane;
 
 // ?
-#define MAXOPENINGS	SCREENWIDTH*64
+#define MAXOPENINGS	SCREENWIDTH*256
 short			openings[MAXOPENINGS];
 short*			lastopening;
 

@@ -31,6 +31,7 @@ make -C doomgeneric/test                 # mixer, tick fill, sound module, music
 make -C doomgeneric/test armel           # the same, static ARMv5 under qemu-arm-static
 make -C doomgeneric/test present         # frame converter and damage model, native
 make -C doomgeneric/test present-armel   # the same under qemu-arm-static
+make -C doomgeneric/test wad             # WAD inspection and wide patches, synthetic data, native
 ```
 
 The tests need python3 and flac, and for `armel` qemu-arm-static and arm-linux-gnueabi-gcc.

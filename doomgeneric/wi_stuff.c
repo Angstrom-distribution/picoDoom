@@ -1687,7 +1687,7 @@ static void WI_loadUnloadData(load_callback_t callback)
     {
         M_StringCopy(name, DEH_String("INTERPIC"), sizeof(name));
     }
-    else if (gamemode == retail && wbs->epsd == 3)
+    else if (gamemode == retail && wbs->epsd >= 3)
     {
         M_StringCopy(name, DEH_String("INTERPIC"), sizeof(name));
     }

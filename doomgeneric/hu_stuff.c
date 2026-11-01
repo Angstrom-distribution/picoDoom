@@ -335,7 +335,17 @@ void HU_Start(void)
     switch ( logical_gamemission )
     {
       case doom:
-	s = HU_TITLE;
+	if (gameepisode > 4)
+	{
+	    // Add-on episodes (SIGIL) have no built-in level names.
+	    static char addon_title[8];
+
+	    M_snprintf(addon_title, sizeof(addon_title), "E%dM%d",
+	               gameepisode, gamemap);
+	    s = addon_title;
+	}
+	else
+	    s = HU_TITLE;
 	break;
       case doom2:
 	 s = HU_TITLE2;

@@ -787,8 +787,19 @@ void R_InitTextures (void)
 void R_InitFlats (void)
 {
     int		i;
-	
-    firstflat = W_GetNumForName (DEH_String("F_START")) + 1;
+    int		start;
+
+    // The flats of the IWAD start at its F_START. A PWAD that brings flats
+    // between its own F_START and F_END (SIGIL II does) lies after it, and
+    // the last F_END then ends the range, so that both are numbered.
+    // W_GetNumForName finds the last F_START, which would drop the IWAD's.
+    for (start = 0; start < numlumps; start++)
+	if (!strncasecmp(lumpinfo[start].name, DEH_String("F_START"), 8))
+	    break;
+    if (start == numlumps)
+	W_GetNumForName (DEH_String("F_START"));	// reports the error
+
+    firstflat = start + 1;
     lastflat = W_GetNumForName (DEH_String("F_END")) - 1;
     numflats = lastflat - firstflat + 1;
 	
@@ -884,6 +895,15 @@ int R_FlatNumForName (char* name)
 	memcpy (namet, name,8);
 	I_Error ("R_FlatNumForName: %s not found",namet);
     }
+
+    // A flat outside the range would index past the per-flat tables.
+    if (i < firstflat || i > lastflat)
+    {
+	namet[8] = 0;
+	memcpy (namet, name,8);
+	I_Error ("R_FlatNumForName: %s is outside F_START and F_END",namet);
+    }
+
     return i - firstflat;
 }
 

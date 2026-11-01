@@ -104,12 +104,29 @@ sndmix_test_armel: sndmix_test.c ../i_sndmix.c ../i_sndmix.h
 musplay_test_armel: $(MUSSRC)
 	arm-linux-gnueabi-gcc $(CFLAGS) $(ARMFLAGS) $(INC) -o $@ musplay_test.c
 
+# WAD support: the inspection of WAD files (d_wadinfo.c) on synthetic WADs
+# that gen_wads.py writes into $(WORK)/wads, and wide full-screen patches in
+# v_video.c. No game data and no libpng calls are made; v_video.c includes
+# png.h, so the libpng headers are needed to compile it.
+
+wad: wadinfo_test widepatch_test
+	python3 -I gen_wads.py $(WORK)/wads
+	./wadinfo_test $(WORK)/wads
+	./widepatch_test
+
+wadinfo_test: wadinfo_test.c ../d_wadinfo.c ../d_wadinfo.h
+	$(CC) $(CFLAGS) $(INC) -o $@ wadinfo_test.c
+
+widepatch_test: widepatch_test.c ../v_video.c ../v_video.h
+	$(CC) $(CFLAGS) -fsigned-char -fgnu89-inline -DNORMALUNIX -DLINUX -DDOOMGENERIC_RESX=320 -DDOOMGENERIC_RESY=200 $(INC) -o $@ widepatch_test.c -lpng -lm
+
 clean:
+	rm -f wadinfo_test widepatch_test
 	rm -rf obj-native obj-armel present_hl present_hl_armel present_pak_test present_pak_test_armel present_bench present_bench_armel present_pak_test_san
 	rm -rf sndmix_test sndmix_test_armel tick_test tick_test_armel audiomod_test audiomod_test_armel audiomod_old audiomod_old_armel audiomod*.out audiomod*.res musplay_test musplay_test_armel modtest modtest_armel \
 	       render.wav render-armel.wav $(WORK)
 
-.PHONY: all armel clean
+.PHONY: all armel clean wad
 
 # The presentation path (dg_present): exactness, damage property, statistics.
 #

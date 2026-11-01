@@ -187,8 +187,8 @@ int D_ScanWAD(const char *path, wadscan_t *scan, char *err, size_t errlen)
 		{
 			got = read_prefix(f, pos, size, buf);
 			buf[got] = 0;
-			// Patches that use the id24 extensions say 2024 in the
-			// header; the Legacy of Rust files say 2021.
+			// The MBF21 specification marks its patches with 2021,
+			// the id24 specification with 2024.
 			if (memfind(buf, got, "Doom version = 2021") ||
 			    memfind(buf, got, "Doom version = 2024"))
 				scan->id24_deh = 1;
@@ -232,7 +232,7 @@ int D_CheckIWADScan(const wadscan_t *s, const char *path,
 
 	if (s->id24_deh)
 	{
-		snprintf(err, errlen, "%s needs id24 DEHACKED extensions, which "
+		snprintf(err, errlen, "%s needs MBF21 or id24 DEHACKED extensions, which "
 		         "this engine does not implement.", path);
 		return -1;
 	}
@@ -245,9 +245,10 @@ int D_CheckPWADScan(const wadscan_t *s, const char *path,
 {
 	if (s->id24_deh)
 	{
-		snprintf(err, errlen, "%s needs id24 DEHACKED extensions (the "
-		         "2019 and later Doom releases' add-ons such as Legacy "
-		         "of Rust), which this engine does not implement. "
+		snprintf(err, errlen, "%s needs MBF21 or id24 DEHACKED extensions "
+		         "(MBF21 add-ons, and the add-ons of the 2019 and later "
+		         "Doom releases such as Legacy of Rust), which this "
+		         "engine does not implement. "
 		         "Expansions and levels for the classic game load "
 		         "normally.", path);
 		return -1;

@@ -45,6 +45,7 @@ make -C doomgeneric/test
 make -C doomgeneric/test armel
 make -C doomgeneric/test present
 make -C doomgeneric/test present-armel
+make -C doomgeneric/test wad
 ```
 
 - The tests need `freedoom1.wad` and, for `armel`, `qemu-arm-static` and an ARM cross compiler. Say whether a result came from the host, qemu-user or a device.
