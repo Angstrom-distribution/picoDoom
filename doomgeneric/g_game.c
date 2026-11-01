@@ -1323,6 +1323,9 @@ int cpars[32] =
 // G_DoCompleted 
 //
 boolean		secretexit; 
+
+// Map that had the secret exit, for add-on episodes (G_DoCompleted).
+static int	secretfrom = 1;
 extern char*	pagename; 
  
 void G_ExitLevel (void) 
@@ -1402,6 +1405,9 @@ void G_DoCompleted (void)
 //#endif
     
 	 
+    if (secretexit && gamemode != commercial)
+	secretfrom = gamemap;
+
     wminfo.didsecret = players[consoleplayer].didsecret; 
     wminfo.epsd = gameepisode -1; 
     wminfo.last = gamemap -1;
@@ -1443,6 +1449,11 @@ void G_DoCompleted (void)
 		break; 
 	      case 4:
 		wminfo.next = 2;
+		break;
+	      default:
+		// Add-on episodes: the vanilla episodes all return to the
+		// map after the one with the secret exit.
+		wminfo.next = secretfrom;
 		break;
 	    }                
 	} 
@@ -1730,6 +1741,7 @@ G_InitNew
   int		map )
 {
     char *skytexturename;
+    char skyname[9];
     int             i;
 
     if (paused)
@@ -1876,6 +1888,13 @@ G_InitNew
             break;
           case 4:        // Special Edition sky
             skytexturename = "SKY4";
+            break;
+          case 5:
+          case 6:
+            // Add-on episodes bring their own sky, if not the first one's.
+            M_snprintf(skyname, sizeof(skyname), "SKY%d", gameepisode);
+            skytexturename = R_CheckTextureNumForName(skyname) >= 0 ? skyname
+                                                             : "SKY1";
             break;
         }
     }

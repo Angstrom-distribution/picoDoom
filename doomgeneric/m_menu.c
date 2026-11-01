@@ -270,6 +270,8 @@ enum
     ep2,
     ep3,
     ep4,
+    ep5,
+    ep6,
     ep_end
 } episodes_e;
 
@@ -278,12 +280,18 @@ menuitem_t EpisodeMenu[]=
     {1,"M_EPI1", M_Episode,'k'},
     {1,"M_EPI2", M_Episode,'t'},
     {1,"M_EPI3", M_Episode,'i'},
-    {1,"M_EPI4", M_Episode,'t'}
+    {1,"M_EPI4", M_Episode,'t'},
+    {1,"M_EPI5", M_Episode,0},
+    {1,"M_EPI6", M_Episode,0}
 };
+
+// The episode a menu item starts. The add-on episodes take the free items in
+// the order they are found, so they are not tied to the item number.
+static int epi_number[] = { 1, 2, 3, 4, 5, 6 };
 
 menu_t  EpiDef =
 {
-    ep_end,		// # of menu items
+    ep4 + 1,		// # of menu items; add-on episodes are counted in M_Init
     &MainDef,		// previous menu
     EpisodeMenu,	// menuitem_t ->
     M_DrawEpisode,	// drawing routine ->
@@ -937,7 +945,7 @@ void M_VerifyNightmare(int key)
     if (key != key_menu_confirm)
 	return;
 		
-    G_DeferedInitNew(nightmare,epi+1,1);
+    G_DeferedInitNew(nightmare,epi_number[epi],1);
     M_ClearMenus ();
 }
 
@@ -949,7 +957,7 @@ void M_ChooseSkill(int choice)
 	return;
     }
 	
-    G_DeferedInitNew(choice,epi+1,1);
+    G_DeferedInitNew(choice,epi_number[epi],1);
     M_ClearMenus ();
 }
 
@@ -2118,6 +2126,29 @@ void M_Init (void)
     if (gameversion < exe_ultimate)
     {
 	EpiDef.numitems--;
+    }
+    else if (gamemode == retail)
+    {
+	// Add-on episodes (SIGIL and SIGIL II) show up when a PWAD has both
+	// the menu graphic and the first map of the episode.
+	int n = ep4 + 1, e;
+
+	for (e = 5; e <= 6; e++)
+	{
+	    char gfx[9], map[9];
+
+	    M_snprintf(gfx, sizeof(gfx), "M_EPI%d", e);
+	    M_snprintf(map, sizeof(map), "E%dM1", e);
+
+	    if (W_CheckNumForName(gfx) >= 0 && W_CheckNumForName(map) >= 0)
+	    {
+		M_StringCopy(EpisodeMenu[n].name, gfx,
+		             sizeof(EpisodeMenu[n].name));
+		epi_number[n] = e;
+		n++;
+	    }
+	}
+	EpiDef.numitems = n;
     }
 
     //opldev = M_CheckParm("-opldev") > 0;

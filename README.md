@@ -2,7 +2,7 @@
 
 PicoDoom is Doom for small handhelds: about 64 MiB of RAM, a QVGA-class panel (240x320) and no GPU. It is a fork of [doomgeneric](https://github.com/ozkl/doomgeneric), kept close to upstream, with a Wayland back end for the picowl compositor, sound effects and music through ALSA, and changes that make the renderer and the present step cheaper on an ARMv5 core without an FPU. HP iPAQs are the example and test devices.
 
-The game itself is the doomgeneric port of the Chocolate Doom code base. A WAD is needed: the shareware `doom1.wad`, or [Freedoom](https://freedoom.github.io/), which is what the tests use.
+The game itself is the doomgeneric port of the Chocolate Doom code base. A WAD is needed: the shareware `doom1.wad`, [Freedoom](https://freedoom.github.io/), which is what the tests use, or the game data of a Doom you own. Which data runs is in [docs/wads.md](docs/wads.md).
 
 ## Features
 
@@ -32,6 +32,7 @@ There is no release yet. The table says what works and where it was verified.
 | Sound effects, thread mode | working | listened to on the h2200, where it costs 5 to 8 % of the frame rate ([docs/performance.md](docs/performance.md)); host test of the mixer against a 64-bit reference, bit for bit, native and under qemu-arm-static |
 | Sound effects, tick mode | working, off by default | host tests on a fake PCM device including stalls; on the h2200 fullscreen 2.8 % (portrait) and 5.0 % (landscape) faster than thread mode |
 | Music | built, not run on a device (the h2200 benchmarks ran the music code without a pack) | host tests with a Freedoom pack, and a qemu run that is bit-identical to the rendered track |
+| The 2019 and later Doom and Doom II IWADs, SIGIL, SIGIL II, a clear error for files that cannot run | working, with the limits in [docs/wads.md](docs/wads.md) | headless runs of every IWAD and add-on of the author; host tests on synthetic files; Freedoom frames and demo lengths unchanged. Not run on a device |
 | Texture column cache and draw-loop locals | working | h2200 timedemo: 56.4 to 67.8 frames per second headless |
 | h3900 and hx4700 | not measured with these changes | the h3900 ran the engine benchmarks without the Wayland back end |
 

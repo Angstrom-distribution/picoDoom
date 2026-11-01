@@ -25,7 +25,7 @@ typedef struct
 	int has_map01;
 	int has_gameconf;   // id24 GAMECONF lump (2019 and later releases)
 	int has_dmenupic;
-	int id24_deh;       // DEHACKED lump of version 2021 or 2024 (id24)
+	int id24_deh;       // DEHACKED lump of version 2021 (MBF21) or 2024 (id24)
 	GameMission_t gameconf_mission;  // from the GAMECONF title, or none
 } wadscan_t;
 
