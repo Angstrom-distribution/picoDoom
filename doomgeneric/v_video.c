@@ -132,6 +132,40 @@ void V_SetPatchClipCallback(vpatchclipfunc_t func)
 }
 
 //
+// V_WidePatchSkip
+//
+// The 2019 and later Doom and Doom II releases ship full-screen graphics
+// (title, help, intermission, finale backgrounds, the status bar) wider than
+// 320 columns, with the classic picture in the middle. A patch wider than the
+// screen is centered and its outer columns are dropped. This turns an error
+// into a crop, so no WAD that worked before is affected.
+//
+// Returns the number of columns to skip on the left. *w is set to the number
+// of columns to draw and *x to the screen column of the first one.
+//
+static int V_WidePatchSkip(const patch_t *patch, int *x, int *w)
+{
+    int skip = 0;
+
+    *w = SHORT(patch->width);
+
+    if (*w > SCREENWIDTH)
+    {
+        skip = (*w - SCREENWIDTH) / 2;
+        *w = SCREENWIDTH;
+        *x = 0;
+    }
+
+    return skip;
+}
+
+int V_PatchCenterSkip(const patch_t *patch)
+{
+    return SHORT(patch->width) > SCREENWIDTH
+         ? (SHORT(patch->width) - SCREENWIDTH) / 2 : 0;
+}
+
+//
 // V_DrawPatch
 // Masks a column based masked pic to the screen. 
 //
@@ -145,9 +179,11 @@ void V_DrawPatch(int x, int y, patch_t *patch)
     byte *dest;
     byte *source;
     int w;
+    int skip;
 
     y -= SHORT(patch->topoffset);
     x -= SHORT(patch->leftoffset);
+    skip = V_WidePatchSkip(patch, &x, &w);
 
     // haleyjd 08/28/10: Strife needs silent error checking here.
     if(patchclip_callback)
@@ -158,7 +194,7 @@ void V_DrawPatch(int x, int y, patch_t *patch)
 
 #ifdef RANGECHECK
     if (x < 0
-     || x + SHORT(patch->width) > SCREENWIDTH
+     || x + w > SCREENWIDTH
      || y < 0
      || y + SHORT(patch->height) > SCREENHEIGHT)
     {
@@ -166,16 +202,14 @@ void V_DrawPatch(int x, int y, patch_t *patch)
     }
 #endif
 
-    V_MarkRect(x, y, SHORT(patch->width), SHORT(patch->height));
+    V_MarkRect(x, y, w, SHORT(patch->height));
 
     col = 0;
     desttop = dest_screen + y * SCREENWIDTH + x;
 
-    w = SHORT(patch->width);
-
     for ( ; col<w ; x++, col++, desttop++)
     {
-        column = (column_t *)((byte *)patch + LONG(patch->columnofs[col]));
+        column = (column_t *)((byte *)patch + LONG(patch->columnofs[col + skip]));
 
         // step through the posts in a column
         while (column->topdelta != 0xff)
@@ -209,9 +243,11 @@ void V_DrawPatchFlipped(int x, int y, patch_t *patch)
     byte *dest;
     byte *source; 
     int w; 
+    int skip;
  
     y -= SHORT(patch->topoffset); 
     x -= SHORT(patch->leftoffset); 
+    skip = V_WidePatchSkip(patch, &x, &w);
 
     // haleyjd 08/28/10: Strife needs silent error checking here.
     if(patchclip_callback)
@@ -222,7 +258,7 @@ void V_DrawPatchFlipped(int x, int y, patch_t *patch)
 
 #ifdef RANGECHECK 
     if (x < 0
-     || x + SHORT(patch->width) > SCREENWIDTH
+     || x + w > SCREENWIDTH
      || y < 0
      || y + SHORT(patch->height) > SCREENHEIGHT)
     {
@@ -230,16 +266,14 @@ void V_DrawPatchFlipped(int x, int y, patch_t *patch)
     }
 #endif
 
-    V_MarkRect (x, y, SHORT(patch->width), SHORT(patch->height));
+    V_MarkRect (x, y, w, SHORT(patch->height));
 
     col = 0;
     desttop = dest_screen + y * SCREENWIDTH + x;
 
-    w = SHORT(patch->width);
-
     for ( ; col<w ; x++, col++, desttop++)
     {
-        column = (column_t *)((byte *)patch + LONG(patch->columnofs[w-1-col]));
+        column = (column_t *)((byte *)patch + LONG(patch->columnofs[SHORT(patch->width) - 1 - skip - col]));
 
         // step through the posts in a column
         while (column->topdelta != 0xff )

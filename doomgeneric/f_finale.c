@@ -123,6 +123,10 @@ void F_StartFinale (void)
         S_ChangeMusic(mus_read_m, true);
     }
 
+    // Add-on episodes have no built-in text; show the plain art screen.
+    finaletext = "";
+    finaleflat = "FLOOR4_8";
+
     // Find the right screen and set the text and background
 
     for (i=0; i<arrlen(textscreens); ++i)
@@ -611,6 +615,7 @@ void F_BunnyScroll (void)
     patch_t*	p2;
     char	name[10];
     int		stage;
+    int		skip1, skip2;
     static int	laststage;
 		
     p1 = W_CacheLumpName (DEH_String("PFUB2"), PU_LEVEL);
@@ -624,12 +629,16 @@ void F_BunnyScroll (void)
     if (scrolled < 0)
 	scrolled = 0;
 		
+    // Wide versions of the pictures hold the classic 320 columns in the middle.
+    skip1 = V_PatchCenterSkip(p1);
+    skip2 = V_PatchCenterSkip(p2);
+
     for ( x=0 ; x<SCREENWIDTH ; x++)
     {
 	if (x+scrolled < 320)
-	    F_DrawPatchCol (x, p1, x+scrolled);
+	    F_DrawPatchCol (x, p1, x+scrolled + skip1);
 	else
-	    F_DrawPatchCol (x, p2, x+scrolled - 320);		
+	    F_DrawPatchCol (x, p2, x+scrolled - 320 + skip2);
     }
 	
     if (finalecount < 1130)
@@ -687,7 +696,10 @@ static void F_ArtScreenDrawer(void)
                 lumpname = "ENDPIC";
                 break;
             default:
-                return;
+                if (gameepisode < 5)
+                    return;
+                lumpname = "ENDPIC";
+                break;
         }
 
         lumpname = DEH_String(lumpname);
