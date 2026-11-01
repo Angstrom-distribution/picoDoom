@@ -35,6 +35,7 @@
 #include "sounds.h"
 
 #include "d_iwad.h"
+#include "d_wadinfo.h"
 
 #include "z_zone.h"
 #include "w_main.h"
@@ -733,8 +734,20 @@ void D_IdentifyVersion(void)
     if (gamemission == none)
     {
         unsigned int i;
+        int gc = W_CheckNumForName("GAMECONF");
 
-        for (i=0; i<numlumps; ++i)
+        // The 2019 and later releases name the game in an id24 GAMECONF
+        // lump, so a renamed plutonia.wad is still recognized.
+        if (gc >= 0)
+        {
+            byte *data = W_CacheLumpNum(gc, PU_STATIC);
+
+            gamemission = D_MissionFromGameconf((char *) data,
+                                                W_LumpLength(gc));
+            W_ReleaseLumpNum(gc);
+        }
+
+        for (i=0; gamemission == none && i<numlumps; ++i)
         {
             if (!strncasecmp(lumpinfo[i].name, "MAP01", 8))
             {
@@ -752,7 +765,8 @@ void D_IdentifyVersion(void)
         {
             // Still no idea.  I don't think this is going to work.
 
-            I_Error("Unknown or invalid IWAD file.");
+            I_Error("Unknown or invalid IWAD file: no E1M1 or MAP01 level "
+                    "data was found.");
         }
     }
 
@@ -1376,6 +1390,9 @@ void D_DoomMain (void)
                 "specifying one with the '-iwad' command line parameter.\n");
     }
 
+    // Say why a file cannot be used instead of failing later on a missing lump.
+    D_RequireUsableIWAD(iwadfile);
+
     modifiedgame = false;
 
     DEH_printf("W_Init: Init WADfiles.\n");
@@ -1416,7 +1433,16 @@ void D_DoomMain (void)
 
     if (W_CheckNumForName("dmenupic") >= 0)
     {
-        printf("BFG Edition: Using workarounds as needed.\n");
+        if (W_CheckNumForName("gameconf") >= 0)
+        {
+            printf("Doom 2019 or later re-release IWAD: wide graphics are "
+                   "cropped to the middle 320 columns, id24 lumps are "
+                   "ignored.\n");
+        }
+        else
+        {
+            printf("BFG Edition: Using workarounds as needed.\n");
+        }
         bfgedition = true;
 
         // BFG Edition changes the names of the secret levels to

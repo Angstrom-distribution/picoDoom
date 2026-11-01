@@ -161,6 +161,7 @@
     <ClCompile Include="d_event.c" />
     <ClCompile Include="d_items.c" />
     <ClCompile Include="d_iwad.c" />
+    <ClCompile Include="d_wadinfo.c" />
     <ClCompile Include="d_loop.c" />
     <ClCompile Include="d_main.c" />
     <ClCompile Include="d_mode.c" />
@@ -254,6 +255,7 @@
     <ClInclude Include="d_event.h" />
     <ClInclude Include="d_items.h" />
     <ClInclude Include="d_iwad.h" />
+    <ClInclude Include="d_wadinfo.h" />
     <ClInclude Include="d_loop.h" />
     <ClInclude Include="d_main.h" />
     <ClInclude Include="d_mode.h" />
