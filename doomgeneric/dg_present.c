@@ -234,6 +234,55 @@ void DGP_ConvertOld(void *data, const dgp_geom_t *g, const uint8_t *src,
 #undef DGP_SUFFIX
 #undef DGP_CONVERT
 
+void DGP_Convert8(uint8_t *pic, int stride, const uint8_t *src,
+                  const dgp_geom_t *g, const uint8_t *convert_rows)
+{
+	const uint16_t *xoff = g->xoff;
+	int w = g->picw;
+	int y;
+
+	for (y = 0; y < g->pich; y++)
+	{
+		uint8_t *row = pic + (size_t)y * stride;
+		const uint8_t *s;
+		int i;
+
+		if (convert_rows && !convert_rows[y])
+		{
+			continue;
+		}
+
+		if (y > 0 && g->yrow[y] == g->yrow[y - 1])
+		{
+			memcpy(row, row - stride, w);
+			continue;
+		}
+
+		s = src + g->ymap[y];
+
+		if (g->kernel == DGP_K_320)
+		{
+			memcpy(row, s, w);
+			continue;
+		}
+
+		for (i = 0; i + 4 <= w; i += 4)
+		{
+			unsigned a0 = s[xoff[i]], a1 = s[xoff[i + 1]];
+			unsigned a2 = s[xoff[i + 2]], a3 = s[xoff[i + 3]];
+
+			row[i] = a0;
+			row[i + 1] = a1;
+			row[i + 2] = a2;
+			row[i + 3] = a3;
+		}
+		for (; i < w; i++)
+		{
+			row[i] = s[xoff[i]];
+		}
+	}
+}
+
 #define PASS_WORDS 8
 
 int DGP_TrackerInit(dgp_tracker_t *t, int damage)
@@ -528,6 +577,11 @@ int DGP_Resize(dgp_t *c, int width, int height, int picx, int picy, int picw,
 
 void DGP_PaletteChanged(dgp_t *c)
 {
+	if (c->g.bpp == 1)
+	{
+		c->st.pal_only++;
+		return;
+	}
 	DGP_TrackerPalette(&c->t);
 	c->st.pal_full++;
 }
@@ -615,7 +669,12 @@ void DGP_Convert(dgp_t *c, void *data, const uint8_t *src,
                  const uint16_t *pal565, const uint32_t *pal8888,
                  const dgp_plan_t *p)
 {
-	if (c->mode == DGP_MODE_NEW && c->g.bpp == 2)
+	if (c->g.bpp == 1)
+	{
+		DGP_Convert8((uint8_t *)data + (size_t)c->g.picy * c->g.stride
+		             + c->g.picx, c->g.stride, src, &c->g, p->convert);
+	}
+	else if (c->mode == DGP_MODE_NEW && c->g.bpp == 2)
 	{
 		DGP_Convert565((uint16_t *)data + (size_t)c->g.picy * (c->g.stride / 2)
 		               + c->g.picx, c->g.stride / 2, src, pal565, &c->g,
@@ -633,12 +692,12 @@ void DGP_StatsString(const dgp_t *c, char *buf, int size)
 
 	snprintf(buf, size, "DG_PresentStats: draws=%u commits=%u skipped=%u "
 	         "full=%u rows_conv=%llu rows_dmg=%llu bytes_dmg=%llu "
-	         "rects=%llu cmp_rows=%llu cmp_bytes=%llu pal_full=%u",
+	         "rects=%llu cmp_rows=%llu cmp_bytes=%llu pal_full=%u pal_only=%u",
 	         s->draws, s->commits, s->skipped, s->full,
 	         (unsigned long long)s->rows_conv,
 	         (unsigned long long)s->rows_dmg,
 	         (unsigned long long)s->bytes_dmg,
 	         (unsigned long long)s->rects,
 	         (unsigned long long)s->cmp_rows,
-	         (unsigned long long)s->cmp_bytes, s->pal_full);
+	         (unsigned long long)s->cmp_bytes, s->pal_full, s->pal_only);
 }

@@ -50,7 +50,7 @@ typedef struct
 	int width, height;		// the buffer, in pixels
 	int picx, picy;			// the picture inside it
 	int picw, pich;
-	int bpp;			// bytes per buffer pixel: 2 (RGB565) or 4
+	int bpp;			// bytes per buffer pixel: 1 (C8), 2 (RGB565) or 4
 	int stride;			// bytes from one buffer row to the next, DGP_Stride()
 	int *xmap;			// source column for each output column
 	int *ymap;			// source row * DGP_SRC_W for each output row
@@ -102,7 +102,7 @@ typedef struct
 
 typedef struct
 {
-	uint32_t draws, commits, skipped, full, pal_full;
+	uint32_t draws, commits, skipped, full, pal_full, pal_only;
 	uint64_t rows_conv, rows_dmg, bytes_dmg, rects, cmp_rows, cmp_bytes;
 } dgp_stats_t;
 
@@ -135,6 +135,13 @@ typedef struct
 	int *runlo, *runhi, *hist;	// scratch for DGP_PlanRects
 	dgp_stats_t st;
 } dgp_t;
+
+// The C8 scaler: the buffer holds source indices, the compositor owns the
+// palette, so no palette is read and a palette change moves no pixel.  pic is
+// the first pixel of the picture inside the buffer, stride the buffer row
+// length in bytes.
+void DGP_Convert8(uint8_t *pic, int stride, const uint8_t *src,
+                  const dgp_geom_t *g, const uint8_t *convert_rows);
 
 // The RGB565 converter.  pic is the first pixel of the picture inside the
 // buffer, stride_px the buffer row length in pixels (stride / 2, so the
@@ -174,7 +181,8 @@ void DGP_Free(dgp_t *c);
 // src is the current frame, or NULL when there is none yet.
 int DGP_Resize(dgp_t *c, int width, int height, int picx, int picy, int picw,
                int pich, int bpp, const uint8_t *src);
-// The palette really changed.
+// The palette really changed.  With a C8 buffer (bpp 1) no row is marked:
+// the indices stay right and only the palette the compositor holds changes.
 void DGP_PaletteChanged(dgp_t *c);
 // Decides what to convert and what to damage for a buffer that last showed
 // frame bufgen (drawn is 0 for a buffer that was never drawn).

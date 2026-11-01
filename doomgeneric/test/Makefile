@@ -122,7 +122,7 @@ widepatch_test: widepatch_test.c ../v_video.c ../v_video.h
 
 clean:
 	rm -f wadinfo_test widepatch_test
-	rm -rf obj-native obj-armel present_hl present_hl_armel present_pak_test present_pak_test_armel present_bench present_bench_armel present_pak_test_san
+	rm -rf obj-native obj-armel c8_test c8_test_armel c8_test_san present_hl present_hl_armel present_pak_test present_pak_test_armel present_bench present_bench_armel present_pak_test_san
 	rm -rf sndmix_test sndmix_test_armel tick_test tick_test_armel audiomod_test audiomod_test_armel audiomod_old audiomod_old_armel audiomod*.out audiomod*.res musplay_test musplay_test_armel modtest modtest_armel \
 	       render.wav render-armel.wav $(WORK)
 
@@ -209,3 +209,24 @@ present-armel: present_hl_armel present_pak_test_armel present_bench_armel
 	grep -q "PRESENT_TEST: PASS" $(WORK)/present_hl_armel.log
 
 .PHONY: present present-armel
+
+# The paletted (C8) present path: the buffer choice, the C8 scaler against the
+# XRGB8888 converter, the palette handling.  Synthetic frames, no WAD.
+C8SRC = c8_test.c ../dg_c8.c ../dg_c8.h ../dg_present.c ../dg_present.h ../dg_present_conv.inc
+
+c8_test: $(C8SRC)
+	$(CC) -O2 -Wall -Wextra -fsigned-char -fgnu89-inline -I.. -o $@ c8_test.c ../dg_c8.c ../dg_present.c
+c8_test_armel: $(C8SRC)
+	$(ARMCC) $(PRES_ARMEL) -static -Wall -Wextra -I.. -o $@ c8_test.c ../dg_c8.c ../dg_present.c
+c8_test_san: $(C8SRC)
+	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+	  -fsigned-char -fgnu89-inline -I.. -o $@ c8_test.c ../dg_c8.c ../dg_present.c
+
+c8: c8_test c8_test_san
+	./c8_test
+	./c8_test_san
+
+c8-armel: c8_test_armel
+	qemu-arm-static ./c8_test_armel
+
+.PHONY: c8 c8-armel
