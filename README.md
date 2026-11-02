@@ -21,6 +21,13 @@ The command line options are in [docs/options.md](docs/options.md), building in 
 
 <!-- The pictures on the glass are renders from a headless picowl in a container, not device captures. The iPAQ drawing is CC-BY-SA-4.0, see LICENSES/CC-BY-SA-4.0.txt. -->
 
+<p>
+<img src="docs/img/startup-melt.svg" width="240" alt="The Freedoom title screen, the screen melting away, and the first level, in an iPAQ h2200.">
+<img src="docs/img/demo-3s.svg" width="240" alt="Three seconds of the Freedoom demo in an iPAQ h2200: firing, picking up a clip.">
+</p>
+
+<!-- The two animations play real engine frames of Freedoom at 35 tics a second, written by a headless build of the engine, scaled as the Wayland back end scales them, and shown in the iPAQ drawing with the timing idealised. They are not device captures. -->
+
 ## Status
 
 There is no release yet. The table says what works and where it was verified.
