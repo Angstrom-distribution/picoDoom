@@ -14,19 +14,11 @@ The game itself is the doomgeneric port of the Chocolate Doom code base. A WAD i
 The command line options are in [docs/options.md](docs/options.md), building in [docs/building.md](docs/building.md) and the measurements in [docs/performance.md](docs/performance.md). The upstream notes about porting are in [docs/doomgeneric.md](docs/doomgeneric.md).
 
 <p>
-<img src="docs/img/h2200-container-doom-tiled.svg" width="240" alt="Doom in the top tile of an iPAQ h2200 with a terminal under it.">
-<img src="docs/img/h2200-container-doom-game.svg" width="240" alt="Doom running alone on an iPAQ h2200, with the 4:3 picture centred.">
-<img src="docs/img/h2200-container-doom-title.svg" width="240" alt="The Freedoom title screen on an iPAQ h2200.">
-</p>
-
-<!-- The pictures on the glass are renders from a headless picowl in a container, not device captures. The iPAQ drawing is CC-BY-SA-4.0, see LICENSES/CC-BY-SA-4.0.txt. -->
-
-<p>
 <img src="docs/img/startup-melt.svg" width="240" alt="The Freedoom title screen, the screen melting away, and the first level, in an iPAQ h2200.">
 <img src="docs/img/demo-3s.svg" width="240" alt="Three seconds of the Freedoom demo in an iPAQ h2200: firing, picking up a clip.">
 </p>
 
-<!-- The two animations play real engine frames of Freedoom at 35 tics a second, written by a headless build of the engine, scaled as the Wayland back end scales them, and shown in the iPAQ drawing with the timing idealised. They are not device captures. -->
+<!-- The two animations play real engine frames of Freedoom at 35 tics a second, written by a headless build of the engine, scaled as the Wayland back end scales them, and shown in the iPAQ drawing with the timing idealised. They are not device captures. The iPAQ drawing is CC-BY-SA-4.0, see LICENSES/CC-BY-SA-4.0.txt. -->
 
 ## Status
 
