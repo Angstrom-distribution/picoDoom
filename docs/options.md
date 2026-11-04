@@ -2,6 +2,13 @@
 
 The options below are the ones PicoDoom adds to doomgeneric's Wayland build. The engine's own options (`-iwad`, `-timedemo`, `-playdemo`, `-warp` and so on) are unchanged. A bad value of a window or present option (`-aspect`, `-presentmode`, `-damage`, `-damage-rects`, `-keymap`) stops the game with an error message. A bad value of a sound option (`-audio-mode`, `-audio-period`, `-audio-periods`, `-audio-depth`) prints one line and the default is used.
 
+## General
+
+| option | meaning |
+|---|---|
+| `--help`, `-h` | Print the usage and exit 0. |
+| `--version` | Print the name and the doomgeneric version it is based on, and exit 0. |
+
 ## Window
 
 | option | meaning |
