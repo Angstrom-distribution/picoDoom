@@ -1,6 +1,6 @@
 # Command line options
 
-The options below are the ones PicoDoom adds to doomgeneric's Wayland build. The engine's own options (`-iwad`, `-timedemo`, `-playdemo`, `-warp` and so on) are unchanged. A bad value of a window or present option (`-aspect`, `-presentmode`, `-damage`, `-damage-rects`, `-keymap`) stops the game with an error message. A bad value of a sound option (`-audio-mode`, `-audio-period`, `-audio-periods`, `-audio-depth`) prints one line and the default is used.
+The options below are the ones PicoDoom adds to doomgeneric's Wayland build. The engine's own options (`-iwad`, `-timedemo`, `-playdemo`, `-warp` and so on) are unchanged. A bad value of a window or present option (`-aspect`, `-presentmode`, `-damage`, `-damage-rects`, `-keymap`, `-c8`) stops the game with an error message. A bad value of a sound option (`-audio-mode`, `-audio-period`, `-audio-periods`, `-audio-depth`) prints one line and the default is used.
 
 ## General
 
@@ -31,6 +31,14 @@ The defaults keep the old behaviour. The settings and the damage counters are pr
 | `-damage full\|sbar\|rows` | What is converted and damaged on each commit. `full` converts every row and damages the whole picture, `sbar` compares only the status bar rows with the previous frame, `rows` compares every row the picture samples and converts and damages only the rows that changed. A commit where no row changed is skipped. |
 | `-damage-rects N` | The most rectangles one commit damages, 1 to 16, default 4. |
 | `-damage-noskip` | Commit even when no row changed. |
+
+## Paletted buffers (C8)
+
+| option | meaning |
+|---|---|
+| `-c8 auto\|off` | `auto` draws 8-bit paletted buffers when the compositor shows them natively, `off` never does. Overrides `wayland_c8` in `default.cfg`. |
+
+The `wayland_c8` key of `default.cfg` takes the same values, default `auto`. The config file is read after the display is set up, so the key takes effect at the first frame. A bad `-c8` value stops the game; a bad config value prints one line and `auto` is used. [C8 buffers](c8.md) describes when `auto` chooses them.
 
 ## Sound
 

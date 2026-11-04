@@ -34,6 +34,11 @@
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
+#ifdef DG_C8
+#include "picowl-palette-v1-client-protocol.h"
+#endif
+
+#include "dg_c8.h"
 #include "dg_present.h"
 #include "doomdef.h"
 #include "doomgeneric.h"
@@ -91,6 +96,32 @@ static uint32_t s_Format = WL_SHM_FORMAT_XRGB8888;
 static int s_HasRgb565;
 static int s_Bpp = 4;
 
+// The paletted path.  s_C8Active is the format the buffers have now; the
+// capabilities decide it again before every frame.
+#define MAX_OUTPUTS 8
+
+struct outputinfo
+{
+	struct wl_output *output;
+	uint32_t format;
+};
+
+static int s_HasC8;
+static int s_C8Active;
+static int s_C8Cfg = DGC8_CFG_AUTO;
+static int s_FormatChange;
+static int s_C8CfgFixed;
+static int s_C8CfgRead;
+static dgc8_t s_C8;
+static struct outputinfo s_Outputs[MAX_OUTPUTS];
+static int s_NumOutputs;
+static struct wl_output *s_CurOutput;
+static int s_Presentation = DGC8_PRES_UNKNOWN;
+#ifdef DG_C8
+static struct picowl_palette_manager_v1 *s_PaletteManager;
+static struct picowl_surface_palette_v1 *s_SurfacePalette;
+#endif
+
 static struct buffer s_Buffers[NUM_BUFFERS];
 
 // The size of the buffers, and of the picture inside them.
@@ -114,6 +145,7 @@ static const char *s_Title;
 static uint16_t s_Pal565[256];
 static uint32_t s_Pal8888[256];
 static int s_PaletteValid;
+static uint8_t s_PalRgb[256 * 3];	// the same colours as r, g, b
 
 static int s_Configured;
 static int s_NeedRedraw;
@@ -405,6 +437,10 @@ static void shmFormat(void *data, struct wl_shm *shm, uint32_t format)
 	{
 		s_HasRgb565 = 1;
 	}
+	else if (format == WL_SHM_FORMAT_C8)
+	{
+		s_HasC8 = 1;
+	}
 }
 
 static const struct wl_shm_listener s_ShmListener =
@@ -511,6 +547,115 @@ static const struct xdg_toplevel_listener s_ToplevelListener =
 	.configure_bounds = toplevelConfigureBounds,
 };
 
+static struct outputinfo *findOutput(struct wl_output *output)
+{
+	int i;
+
+	for (i = 0; i < s_NumOutputs; i++)
+	{
+		if (s_Outputs[i].output == output)
+		{
+			return &s_Outputs[i];
+		}
+	}
+
+	return NULL;
+}
+
+#ifdef DG_C8
+static void outputGeometry(void *data, struct wl_output *output, int32_t x,
+                           int32_t y, int32_t pw, int32_t ph, int32_t subpixel,
+                           const char *make, const char *model,
+                           int32_t transform)
+{
+	(void)data; (void)output; (void)x; (void)y; (void)pw; (void)ph;
+	(void)subpixel; (void)make; (void)model; (void)transform;
+}
+
+static void outputMode(void *data, struct wl_output *output, uint32_t flags,
+                       int32_t width, int32_t height, int32_t refresh)
+{
+	(void)data; (void)output; (void)flags; (void)width; (void)height;
+	(void)refresh;
+}
+
+static const struct wl_output_listener s_OutputListener =
+{
+	.geometry = outputGeometry,
+	.mode = outputMode,
+};
+
+static void paletteConverter(void *data,
+                             struct picowl_palette_manager_v1 *manager,
+                             struct wl_array *entries)
+{
+	// The palette the compositor converts other surfaces to; a C8 surface
+	// sets its own, so it is not needed.
+	(void)data; (void)manager; (void)entries;
+}
+
+static void paletteOutputFormat(void *data,
+                                struct picowl_palette_manager_v1 *manager,
+                                struct wl_output *output, uint32_t format)
+{
+	struct outputinfo *info = findOutput(output);
+
+	(void)data; (void)manager;
+
+	if (!info && s_NumOutputs < MAX_OUTPUTS)
+	{
+		info = &s_Outputs[s_NumOutputs++];
+		info->output = output;
+	}
+	if (info)
+	{
+		info->format = format;
+	}
+}
+
+static const struct picowl_palette_manager_v1_listener s_PaletteManagerListener =
+{
+	.converter_palette = paletteConverter,
+	.output_format = paletteOutputFormat,
+};
+
+static void palettePresentation(void *data,
+                                struct picowl_surface_palette_v1 *palette,
+                                uint32_t mode)
+{
+	(void)data; (void)palette;
+	s_Presentation = mode == 1 ? DGC8_PRES_EXCLUSIVE : DGC8_PRES_COMPOSITED;
+}
+
+static const struct picowl_surface_palette_v1_listener s_SurfacePaletteListener =
+{
+	.presentation = palettePresentation,
+};
+#endif
+
+static void surfaceEnter(void *data, struct wl_surface *surface,
+                         struct wl_output *output)
+{
+	(void)data; (void)surface;
+	s_CurOutput = output;
+}
+
+static void surfaceLeave(void *data, struct wl_surface *surface,
+                         struct wl_output *output)
+{
+	(void)data; (void)surface;
+	if (s_CurOutput == output)
+	{
+		s_CurOutput = NULL;
+	}
+}
+
+static const struct wl_surface_listener s_SurfaceListener =
+{
+	.enter = surfaceEnter,
+	.leave = surfaceLeave,
+};
+
 static void registryGlobal(void *data, struct wl_registry *registry,
                            uint32_t name, const char *interface,
                            uint32_t version)
@@ -542,6 +687,29 @@ static void registryGlobal(void *data, struct wl_registry *registry,
 		                                        &zwp_idle_inhibit_manager_v1_interface,
 		                                        1);
 	}
+#ifdef DG_C8
+	else if (strcmp(interface, picowl_palette_manager_v1_interface.name) == 0)
+	{
+		s_PaletteManager = wl_registry_bind(registry, name,
+		                                    &picowl_palette_manager_v1_interface,
+		                                    1);
+		picowl_palette_manager_v1_add_listener(s_PaletteManager,
+		                                       &s_PaletteManagerListener, NULL);
+	}
+	else if (strcmp(interface, wl_output_interface.name) == 0)
+	{
+		// The compositor names an output by the object this client bound.
+		if (s_NumOutputs < MAX_OUTPUTS)
+		{
+			struct wl_output *output = wl_registry_bind(registry, name,
+			                                            &wl_output_interface,
+			                                            1);
+
+			wl_output_add_listener(output, &s_OutputListener, NULL);
+			s_Outputs[s_NumOutputs++].output = output;
+		}
+	}
+#endif
 	else if (strcmp(interface, wl_seat_interface.name) == 0 && !s_Seat)
 	{
 		s_Seat = wl_registry_bind(registry, name, &wl_seat_interface,
@@ -703,6 +871,35 @@ static void createBuffer(struct buffer *buffer)
 	wl_buffer_add_listener(buffer->wl_buffer, &s_BufferListener, buffer);
 }
 
+// The paletted path is chosen from what the compositor announced, so it can
+// change while the game runs.
+static void checkFormat(void)
+{
+	dgc8_caps_t caps;
+	struct outputinfo *info = s_CurOutput ? findOutput(s_CurOutput) : NULL;
+	int want;
+
+	caps.cfg = s_C8Cfg;
+	caps.shm_c8 = s_HasC8;
+#ifdef DG_C8
+	caps.have_palette = s_SurfacePalette != NULL;
+#else
+	caps.have_palette = 0;
+#endif
+	caps.out_format = info ? info->format : 0;
+	caps.presentation = s_Presentation;
+
+	want = DGC8_Wanted(&caps);
+	if (want != s_C8Active)
+	{
+		s_C8Active = want;
+		s_FormatChange = 1;
+		// The compositor has not seen this palette with this format.
+		DGC8_Reset(&s_C8);
+		printf("DG_Present: %s buffers\n", want ? "C8" : "RGB");
+	}
+}
+
 static void updatePalette(void)
 {
 	uint16_t pal565[256];
@@ -715,6 +912,9 @@ static void updatePalette(void)
 
 		pal565[i] = ((c->r >> 3) << 11) | ((c->g >> 2) << 5) | (c->b >> 3);
 		pal8888[i] = (c->r << 16) | (c->g << 8) | c->b;
+		s_PalRgb[3 * i] = c->r;
+		s_PalRgb[3 * i + 1] = c->g;
+		s_PalRgb[3 * i + 2] = c->b;
 	}
 
 	// The engine sets the palette often with the same colours; only a real
@@ -899,6 +1099,19 @@ static void parseOptions(void)
 
 	s_DamageNoSkip = M_ParmExists("-damage-noskip");
 
+	// The configuration file is read after DG_Init, so the key is applied at
+	// the first frame; -c8 overrides it.
+	p = M_CheckParmWithArgs("-c8", 1);
+	if (p)
+	{
+		s_C8Cfg = DGC8_ParseCfg(myargv[p + 1]);
+		if (s_C8Cfg < 0)
+		{
+			I_Error("-c8 needs auto or off, got '%s'", myargv[p + 1]);
+		}
+		s_C8CfgFixed = 1;
+	}
+
 	s_Stretch = M_ParmExists("-stretch");
 	s_Fullscreen = M_ParmExists("-fullscreen");
 
@@ -929,6 +1142,23 @@ static const uint8_t *presentSource(void)
 static void applyResize(void)
 {
 	int i;
+
+	if (s_C8Active)
+	{
+		s_Format = WL_SHM_FORMAT_C8;
+		s_Bpp = 1;
+	}
+	else if (s_HasRgb565)
+	{
+		s_Format = WL_SHM_FORMAT_RGB565;
+		s_Bpp = 2;
+	}
+	else
+	{
+		s_Format = WL_SHM_FORMAT_XRGB8888;
+		s_Bpp = 4;
+	}
+	s_FormatChange = 0;
 
 	s_Width = s_NewWidth;
 	s_Stride = DGP_Stride(s_Width, s_Bpp);
@@ -1060,6 +1290,16 @@ void DG_Init()
 	}
 
 	s_Surface = wl_compositor_create_surface(s_Compositor);
+	wl_surface_add_listener(s_Surface, &s_SurfaceListener, NULL);
+#ifdef DG_C8
+	if (s_PaletteManager)
+	{
+		s_SurfacePalette = picowl_palette_manager_v1_get_surface_palette(
+			s_PaletteManager, s_Surface);
+		picowl_surface_palette_v1_add_listener(s_SurfacePalette,
+		                                       &s_SurfacePaletteListener, NULL);
+	}
+#endif
 	if (s_IdleInhibitManager)
 	{
 		zwp_idle_inhibit_manager_v1_create_inhibitor(s_IdleInhibitManager,
@@ -1104,13 +1344,39 @@ void DG_DrawFrame()
 {
 	struct buffer *buffer = NULL;
 	dgp_plan_t plan;
+	dgc8_commit_t c8 = { 0, 0 };
 	int i;
 
 	pump(0);
 
-	if (s_Resize)
+	if (!s_C8CfgRead)
 	{
+		s_C8CfgRead = 1;
+		if (!s_C8CfgFixed)
+		{
+			int cfg = DGC8_ParseCfg(DG_C8Mode);
+
+			if (cfg < 0)
+			{
+				printf("DG_Init: %s is not auto or off in wayland_c8, using auto\n",
+				       DG_C8Mode);
+				cfg = DGC8_CFG_AUTO;
+			}
+			s_C8Cfg = cfg;
+		}
+	}
+	checkFormat();
+
+	if (s_Resize || s_FormatChange)
+	{
+		if (!s_Resize)
+		{
+			// The same size in the other format.
+			s_NewWidth = s_Width;
+			s_NewHeight = s_Height;
+		}
 		applyResize();
+		s_NeedRedraw = 1;
 	}
 
 	if (s_FrameCallback && !s_NeedRedraw)
@@ -1144,6 +1410,40 @@ void DG_DrawFrame()
 
 	DGP_Plan(&s_Present, presentSource(), buffer->gen, buffer->drawnFull,
 	         s_NeedRedraw, &plan);
+
+	if (s_C8Active)
+	{
+		uint32_t pal[256];
+
+		DGC8_BuildPalette(pal, s_PalRgb);
+		DGC8_Plan(&s_C8, pal, s_Presentation, &c8);
+#ifdef DG_C8
+		if (c8.send)
+		{
+			struct wl_array array;
+
+			array.size = sizeof(pal);
+			array.alloc = sizeof(pal);
+			array.data = pal;
+			picowl_surface_palette_v1_set_palette(s_SurfacePalette, &array);
+		}
+#endif
+		if (plan.skip && c8.send)
+		{
+			// Only the palette changed: no pixel is converted or copied.
+			if (c8.damage_all)
+			{
+				damage(0, 0, s_Width, s_Height);
+			}
+			wl_surface_commit(s_Surface);
+			return;
+		}
+		if (c8.damage_all)
+		{
+			plan.whole_buffer = 1;
+		}
+	}
+
 	if (plan.skip)
 	{
 		// Nothing changed. The frame callback state stays as it is, so the

@@ -11,7 +11,7 @@ The game itself is the doomgeneric port of the Chocolate Doom code base. A WAD i
 - Music: pre-rendered tracks, one FLAC file per song, mono at 22050 Hz, decoded into a ring that the audio thread, or the game thread in tick mode, mixes. A song is found by a hash of its music lump in the `index.txt` of the music directory; a song without a file is silent. A pack is rendered from a WAD on another machine; the tool for it is a plan and not in this repository ([docs/audio.md](docs/audio.md)).
 - Speed: a cache of the result of `R_GetColumn` per texture column, which cuts data TLB walks by 47 %, and the draw loops keep their sources in locals. On an h2200 both raise the headless timedemo from 56.4 to 67.8 frames per second.
 
-The command line options are in [docs/options.md](docs/options.md), building in [docs/building.md](docs/building.md) and the measurements in [docs/performance.md](docs/performance.md). The upstream notes about porting are in [docs/doomgeneric.md](docs/doomgeneric.md).
+The command line options are in [docs/options.md](docs/options.md), building in [docs/building.md](docs/building.md) and the measurements in [docs/performance.md](docs/performance.md). Paletted buffers for compositors that scan out 8-bit pixels are in [docs/c8.md](docs/c8.md). The upstream notes about porting are in [docs/doomgeneric.md](docs/doomgeneric.md).
 
 <p>
 <img src="docs/img/h2200-container-doom-tiled.svg" width="240" alt="Doom in the top tile of an iPAQ h2200 with a terminal under it.">

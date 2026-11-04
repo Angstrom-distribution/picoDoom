@@ -31,6 +31,7 @@ rcsid[] = "$Id: i_x.c,v 1.6 1997/02/03 22:45:10 b1 Exp $";
 #include "d_event.h"
 #include "d_main.h"
 #include "i_video.h"
+#include "m_config.h"
 #include "i_system.h"
 #include "z_zone.h"
 
@@ -484,6 +485,7 @@ void I_EnableLoadingDisk(void)
 
 void I_BindVideoVariables (void)
 {
+    M_BindVariable("wayland_c8", &DG_C8Mode);
 }
 
 void I_DisplayFPSDots (boolean dots_on)
