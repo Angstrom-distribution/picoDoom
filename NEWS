@@ -1,0 +1,131 @@
+# CHANGES SINCE DOOMGENERIC, UNRELEASED:
+
+        There is no release yet. This section lists what PicoDoom adds
+        to doomgeneric, from commit e257a09 of ozkl/doomgeneric. Part
+        of it has not run on a device; Status says which.
+
+##        Engine fixes:
+
+        * -playdemo and -timedemo no longer read a dangling pointer to
+          the demo lump name, which lived on the stack of D_DoomMain.
+
+        * I_Quit exits after the exit functions have run, so the menu's
+          Quit and the end of a -playdemo stop the program. A recursive
+          I_Error exits instead of overflowing the stack.
+
+        * default.cfg and doomgenericdoom.cfg are read at start and
+          written at exit, from and to the working directory, so key
+          bindings can be set. docs/doomgeneric.md describes the keys.
+
+##        Wayland back end (Makefile.wayland):
+
+        * A window in wl_shm buffers that scales the 320x200 frame to
+          the size the compositor configures, fitted to 4:3 or set with
+          -aspect, or filling the window with -stretch. -fullscreen,
+          -appid and -title, and -keymap to bind evdev codes to keys and
+          game actions. An idle inhibitor keeps the screen on while the
+          window is shown, when the compositor offers the protocol.
+
+        * Each buffer row is aligned to four bytes. An odd window width
+          gave an RGB565 stride that pixman and wlroots refuse.
+
+        * Present options, all off by default: -present-direct reads the
+          engine's frame buffer without a copy, -presentmode new uses an
+          unrolled RGB565 converter, -damage sbar compares the status
+          bar rows with the previous frame and -damage rows compares
+          every row the picture samples; only the rows that changed
+          are converted and damaged, and a commit where none changed
+          is skipped (-damage-rects, -damage-noskip). The settings and
+          counters are printed at start and exit.
+
+          The pictures docs/img/h2200-container-doom-title.svg,
+          docs/img/h2200-container-doom-game.svg and
+          docs/img/h2200-container-doom-tiled.svg show the Freedoom
+          title, the game alone with the 4:3 picture centred, and the
+          game in the top tile with a terminal under it, in the iPAQ
+          h2200 frame. They are renders from a headless picowl in a
+          container, not device captures. The tiled one shows the
+          window following a size the compositor sets.
+
+##        Renderer:
+
+        * A direct-mapped cache of 1024 entries holds the result of
+          R_GetColumn per texture column, and R_DrawColumn, R_DrawSpan
+          and R_DrawFuzzColumn keep their sources and colormaps in
+          locals. On an iPAQ h2200 the headless timedemo goes from 56.4
+          to 67.8 frames per second. No visible difference.
+
+##        Sound and music:
+
+        * Sound effects through ALSA: an integer mixer for 16 voices
+          and a PCM layer that uses ioctls only, so the program links
+          statically on ARMv5 without libasound. -sndpcm and -sndrate
+          pick the device and rate. A device that cannot be opened
+          leaves the game silent with one line of output.
+
+        * -audio-mode tick fills the device queue from the game thread
+          and runs no audio thread. -audio-period, -audio-periods,
+          -audio-depth and -audio-idle tune the queue and the mixing.
+
+        * Pre-rendered music: one mono 22050 Hz FLAC file per song,
+          found by a hash of the music lump in index.txt of -musicdir
+          or DOOM_MUSIC_DIR, decoded with the vendored dr_flac. A song
+          without a file is silent. docs/audio.md has the pack format;
+          the tool that renders a pack is a plan.
+
+##        Game data:
+
+        * The 2019 and later Doom and Doom II IWADs, SIGIL and SIGIL II
+          as -file add-ons to doom.wad, and Master Levels and No Rest
+          for the Living as add-ons to doom2.wad run, with the limits in
+          docs/wads.md. Full-screen patches wider than the screen are
+          centred and cropped. The limits are 256 visplanes and 256
+          screens of openings.
+
+        * The main WAD and each -file WAD are inspected before loading.
+          A file that is no WAD, is damaged, has no levels, lacks
+          PLAYPAL or needs MBF21 or id24 DEHACKED extensions stops the
+          game with a message that names the cause.
+
+          Not shown: the screens of the re-release IWADs and of SIGIL,
+          because their graphics are licensed and are not published.
+
+##        Tests:
+
+        * doomgeneric/test/Makefile has the targets all (mixer, tick
+          fill, sound module on a fake PCM device, music), armel (the
+          same under qemu-arm-static), present and present-armel (frame
+          converter and damage model) and wad (WAD inspection and wide
+          patches on synthetic files). docs/building.md lists what they
+          need.
+
+##        Documentation:
+
+        * README.md, AGENTS.md, CONTRIBUTING.md, SECURITY.md and
+          docs/options.md, docs/building.md, docs/audio.md,
+          docs/wads.md, docs/performance.md; REUSE.toml and LICENSES/.
+
+          The animations docs/img/startup-melt.svg and
+          docs/img/demo-3s.svg show the Freedoom title, the melting
+          wipe and the first level, and three seconds of the Freedoom
+          demo, in the iPAQ h2200 frame. They play engine frames from a
+          headless build at 35 tics a second, not device captures.
+
+##        Status:
+
+        * Run on an iPAQ h2200 under picowl: the Wayland back end, the
+          present options, sound effects in thread and tick mode, the
+          renderer changes. README.md has the table and
+          docs/performance.md the measurements.
+
+        * Not run on a device: music (the device runs had no pack), and
+          everything under Game data: the re-release IWADs, SIGIL and
+          SIGIL II, Master Levels and No Rest for the Living, the
+          cropped wide patches and the WAD inspection. They ran
+          headless and in host tests. Not measured: the h3900 and
+          hx4700 with these changes.
+
+        * No pictures: the engine fixes, sound and music, the renderer
+          change (the frames are bit-identical) and the tests.
+
+        * Known open: mouse and touchscreen input (issue 10).
