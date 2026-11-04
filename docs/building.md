@@ -30,7 +30,7 @@ The paletted present path (see [C8 buffers](c8.md)) is built in when `PICOWL_PAL
 make -f Makefile.wayland PICOWL_PALETTE_XML=/path/to/picowl-palette-v1.xml
 ```
 
-Without it the binary has no C8 code path and `-c8` has no effect. The protocol file is not part of this repository.
+Without it the binary has no C8 code path and `-c8` has no effect. The protocol file is `protocols/picowl-palette-v1.xml` in the picowl repository; it is not part of this one.
 
 ## Tests
 
