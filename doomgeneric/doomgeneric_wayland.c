@@ -37,6 +37,7 @@
 #include "dg_present.h"
 #include "doomdef.h"
 #include "doomgeneric.h"
+#include "config.h"
 #include "doomkeys.h"
 #include "i_system.h"
 #include "i_video.h"
@@ -1226,8 +1227,37 @@ void DG_SetWindowTitle(const char * title)
 	}
 }
 
+static void print_help(const char *prog)
+{
+	printf("Usage: %s [options]\n", prog);
+	printf("Options (the engine's own options, such as -iwad, -warp, -timedemo, are unchanged):\n");
+	printf("  -h, --help          Show this help message\n");
+	printf("  --version           Show the version\n");
+	printf("  -iwad FILE          The game data (see docs/wads.md)\n");
+	printf("  -fullscreen         Ask for a fullscreen window\n");
+	printf("  -appid ID           The application id (default doomgeneric)\n");
+	printf("  -title TEXT         A fixed window title\n");
+	printf("  -aspect W:H         The shape the 320x200 picture is fitted to (default 4:3)\n");
+	printf("  -stretch            Fill the whole window\n");
+	printf("  -keymap CODE=NAME   Bind Linux evdev codes\n");
+	printf("  -presentmode old|new, -damage full|sbar|rows, -present-direct, -damage-rects N, -damage-noskip\n");
+	printf("  -audio-mode, -audio-period, -audio-periods, -audio-depth\n");
+	printf("The full list is in docs/options.md.\n");
+}
+
 int main(int argc, char **argv)
 {
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+			print_help(argv[0]);
+			return 0;
+		}
+		if (!strcmp(argv[i], "--version")) {
+			printf("picodoom, based on %s\n", PACKAGE_STRING);
+			return 0;
+		}
+	}
+
 	doomgeneric_Create(argc, argv);
 
 	while (1)
