@@ -6,6 +6,7 @@ path = [
   "SECURITY.md",
   "CONTRIBUTING.md",
   "AGENTS.md",
+  "NEWS",
   ".gitignore",
   "docs/**.md",
   "docs/**.txt",
